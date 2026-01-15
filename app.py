@@ -221,22 +221,27 @@ def clean_currency_val(val):
 def draw_gauge(current_val, target_val, title):
     percentage = (current_val / target_val * 100) if target_val > 0 else 0
     
+    # 차트의 최대치를 개인 목표 금액으로 설정 (최소 100)
+    max_range = target_val if target_val > 0 else max(current_val, 100)
+
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
+        mode = "gauge+number", # delta 제거
         value = current_val,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"<b>{title}</b><br><span style='font-size:0.8em;color:gray'>달성률: {percentage:.1f}%</span>"},
-        delta = {'reference': target_val, 'increasing': {'color': "green"}},
-        number = {'valueformat': ',.0f', 'suffix': "원"},
+        title = {'text': f"<b>{title}</b>", 'font': {'size': 24}},
+        number = {'valueformat': ',.0f', 'suffix': "원", 'font': {'size': 40}},
         gauge = {
-            'axis': {'range': [0, max(target_val * 1.2, current_val * 1.1, 100)], 'tickformat': ',.0f'},
+            'axis': {
+                'range': [0, max_range], 
+                'tickmode': 'array',
+                'tickvals': [0, max_range * 0.25, max_range * 0.5, max_range * 0.75, max_range],
+                'ticktext': ['0%', '25%', '50%', '75%', '100%'],
+                'tickfont': {'size': 15}
+            },
             'bar': {'color': "#636EFA"},
             'bgcolor': "white",
             'borderwidth': 2,
             'bordercolor': "gray",
-            'steps': [
-                {'range': [0, target_val], 'color': '#E5ECF6'},
-            ],
             'threshold': {
                 'line': {'color': "red", 'width': 4},
                 'thickness': 0.75,
@@ -245,7 +250,25 @@ def draw_gauge(current_val, target_val, title):
         }
     ))
     
-    fig.update_layout(height=500, margin=dict(l=30, r=30, t=150, b=20))
+    # 반원 안에 목표 금액과 실제 실적 텍스트 추가
+    fig.add_annotation(
+        x=0.5, y=0.45,
+        text=f"목표 금액 : {target_val:,.0f}원<br>실제 실적 : {current_val:,.0f}원",
+        showarrow=False,
+        font=dict(size=18, color="black"),
+        align="center"
+    )
+    
+    # 달성률 텍스트 추가
+    fig.add_annotation(
+        x=0.5, y=0.6,
+        text=f"달성률: {percentage:.1f}%",
+        showarrow=False,
+        font=dict(size=20, color="gray"),
+        align="center"
+    )
+    
+    fig.update_layout(height=500, margin=dict(l=30, r=30, t=80, b=20))
     return fig
 
 # 메인 화면 - 목표 설정
@@ -464,34 +487,95 @@ else:
                 selected_managers.append(mgr)
         
         st.sidebar.write("---")
-        sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]; profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
-        def clean_currency(column):
-            if column in df.columns:
-                s = df[column].astype(str).str.replace(r'[^0-9.-]', '', regex=True)
-                return pd.to_numeric(s, errors='coerce').fillna(0)
-            return 0
-        for col in sales_cols + profit_cols: df[col] = clean_currency(col)
-        df['선택기간_총매출'] = df[sales_cols].sum(axis=1); df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
+        # 0. 데이터 전처리: 합계/소계 행 제외 및 담당자 공백 제거
+        exclude_keywords = ['합계', '소계', 'total', 'sum']
+        df = df[~df['Deal - 이름'].astype(str).str.lower().str.contains('|'.join(exclude_keywords), na=False)]
+        
+        for col in ['Deal - 담당자_고객', 'Deal - 담당자_관리', 'Deal - 담당자_소싱']:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip()
+
+        sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
+        profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
+        
+        def clean_currency_final(val):
+            if pd.isna(val): return 0.0
+            if isinstance(val, (int, float)): return float(val)
+            cleaned = re.sub(r'[^0-9.-]', '', str(val))
+            try: return float(cleaned)
+            except: return 0.0
+
+        for col in sales_cols + profit_cols:
+            if col in df.columns:
+                df[col] = df[col].apply(clean_currency_val) # 기존 정의된 함수 사용
+
+        df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
+        df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
+
         def calculate_consolidated_results(target_col):
-            role_configs = [('고객(40%)', 0.4, 'Deal - 담당자_고객'), ('관리(30%)', 0.3, 'Deal - 담당자_관리'), ('소싱(30%)', 0.3, 'Deal - 담당자_소싱')]
+            role_configs = [
+                ('고객', 0.4, 'Deal - 담당자_고객'), 
+                ('관리', 0.3, 'Deal - 담당자_관리'), 
+                ('소싱', 0.3, 'Deal - 담당자_소싱')
+            ]
             individual_results = []
             for role_label, ratio, manager_col in role_configs:
-                temp = df[['Deal - 이름', manager_col, target_col]].copy()
-                temp['반영실적'] = temp[target_col] * ratio; temp['역할'] = role_label; temp.columns = ['Deal명', '담당자', '원금액', '반영실적', '역할']
-                individual_results.append(temp)
+                if manager_col in df.columns:
+                    temp = df[['Deal - 이름', manager_col, target_col]].copy()
+                    temp['반영비율'] = f"{int(ratio*100)}%"
+                    temp['반영실적'] = temp[target_col] * ratio
+                    temp['역할'] = role_label
+                    temp.columns = ['Deal명', '담당자', '원금액', '반영비율', '반영실적', '역할']
+                    individual_results.append(temp)
+            
             combined = pd.concat(individual_results)
-            if selected_managers: combined = combined[combined['담당자'].isin(selected_managers)]
+            # 담당자 이름 기준 필터링
+            if selected_managers:
+                combined = combined[combined['담당자'].isin(selected_managers)]
+            
             return combined
+
         tab1, tab2 = st.tabs(["💰 매출 분석", "📉 이익 분석"])
         with tab1:
             st.subheader(f"📅 매출 조회 기간: {selected_period_label}")
-            m_df = calculate_consolidated_results('선택기간_총매출'); summary_m = m_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values(by='반영실적', ascending=False)
-            st.write("#### 👤 담당자별 합산 실적"); st.dataframe(summary_m.style.format({'반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
-            st.write("---"); st.write("#### 📋 매출 상세 기여 내역"); st.dataframe(m_df[m_df['반영실적'] > 0].style.format({'원금액': '{:,.0f}원', '반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+            m_df = calculate_consolidated_results('선택기간_총매출')
+            summary_m = m_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values(by='반영실적', ascending=False)
+            
+            st.write("#### 👤 담당자별 합산 실적 요약")
+            st.dataframe(summary_m.style.format({'반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+            
+            with st.expander("📋 매출 상세 기여 내역 확인 (어떻게 계산되었나요?)", expanded=False):
+                st.markdown("""
+                **계산 규칙**: 각 Deal의 해당 월 매출에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.
+                """)
+                st.dataframe(
+                    m_df[m_df['반영실적'] > 0].style.format({
+                        '원금액': '{:,.0f}원', 
+                        '반영실적': '{:,.0f}원'
+                    }), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+
         with tab2:
             st.subheader(f"📅 이익 조회 기간: {selected_period_label}")
-            p_df = calculate_consolidated_results('선택기간_총이익'); summary_p = p_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values(by='반영실적', ascending=False)
-            st.write("#### 👤 담당자별 합산 실적"); st.dataframe(summary_p.style.format({'반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
-            st.write("---"); st.write("#### 📋 이익 상세 기여 내역"); st.dataframe(p_df[p_df['반영실적'] > 0].style.format({'원금액': '{:,.0f}원', '반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+            p_df = calculate_consolidated_results('선택기간_총이익')
+            summary_p = p_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values(by='반영실적', ascending=False)
+            
+            st.write("#### 👤 담당자별 합산 실적 요약")
+            st.dataframe(summary_p.style.format({'반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+            
+            with st.expander("📋 이익 상세 기여 내역 확인 (어떻게 계산되었나요?)", expanded=False):
+                st.markdown("""
+                **계산 규칙**: 각 Deal의 해당 월 이익에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.
+                """)
+                st.dataframe(
+                    p_df[p_df['반영실적'] > 0].style.format({
+                        '원금액': '{:,.0f}원', 
+                        '반영실적': '{:,.0f}원'
+                    }), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
     else:
         st.info("좌측 사이드바에서 실적 엑셀 파일을 업로드해 주세요.")
