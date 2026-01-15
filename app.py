@@ -6,6 +6,7 @@ import json
 import os
 import io
 import time
+import re
 
 # 파일 경로 설정
 TARGETS_FILE = "targets.json"
@@ -205,6 +206,17 @@ if st.session_state.page == "targets":
         else:
             st.info("삭제할 담당자가 없습니다.")
 
+def clean_currency_val(val):
+    """금액 데이터에서 숫자만 추출하는 강력한 함수"""
+    if pd.isna(val): return 0.0
+    if isinstance(val, (int, float)): return float(val)
+    # 숫자, 마침표(.), 마이너스(-)만 남기고 모든 문자 제거
+    cleaned = re.sub(r'[^0-9.-]', '', str(val))
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
+
 # 게이지 차트 생성 함수
 def draw_gauge(current_val, target_val, title):
     percentage = (current_val / target_val * 100) if target_val > 0 else 0
@@ -276,7 +288,16 @@ if st.session_state.page == "targets":
                 summary_rows.append(total_row)
         if summary_rows:
             df_summary = pd.DataFrame(summary_rows)
-            st.dataframe(df_summary.style.format({"1/4분기": lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) and x != 0 else f"{x:,.0f}" if isinstance(x, (int, float)) else x, "2/4분기": lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) and x != 0 else f"{x:,.0f}" if isinstance(x, (int, float)) else x, "3/4분기": lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) and x != 0 else f"{x:,.0f}" if isinstance(x, (int, float)) else x, "4/4분기": lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) and x != 0 else f"{x:,.0f}" if isinstance(x, (int, float)) else x, "년 합계": lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) and x != 0 else f"{x:,.0f}" if isinstance(x, (int, float)) else x}), use_container_width=True, hide_index=True)
+            # 모든 수치 컬럼을 반올림하여 소수점 없이 표시
+            format_mapping = {
+                col: lambda x: f"{round(x):,.0f}" if isinstance(x, (int, float)) else x 
+                for col in ["1/4분기", "2/4분기", "3/4분기", "4/4분기", "년 합계"]
+            }
+            st.dataframe(
+                df_summary.style.format(format_mapping), 
+                use_container_width=True, 
+                hide_index=True
+            )
         st.write("---")
         if len(selected_m_list) == 1:
             st.write(f"### 📝 담당자별 목표 수정")
@@ -350,13 +371,6 @@ elif st.session_state.page == "achievement":
     sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
     profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
     
-    # 데이터 정제 함수 (기존 로직 활용)
-    def clean_currency_val(val):
-        if pd.isna(val): return 0
-        s = str(val).replace(r'[^0-9.-]', '')
-        try: return float(s)
-        except: return 0
-
     actual_sales = 0
     actual_profit = 0
     
@@ -368,8 +382,8 @@ elif st.session_state.page == "achievement":
     ]
     
     for ratio, mgr_col in role_configs:
-        # 해당 담당자가 맡은 역할의 데이터만 필터링
-        mgr_df = df[df[mgr_col] == selected_manager]
+        # 해당 담당자가 맡은 역할의 데이터만 필터링 (공백 제거 후 비교)
+        mgr_df = df[df[mgr_col].astype(str).str.strip() == selected_manager.strip()]
         for col in sales_cols:
             if col in mgr_df.columns:
                 actual_sales += (mgr_df[col].apply(clean_currency_val) * ratio).sum()
