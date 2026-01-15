@@ -1,12 +1,51 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import json
 import os
 import io
+import time
 
 # 파일 경로 설정
 TARGETS_FILE = "targets.json"
+DASHBOARD_CACHE_FILE = "dashboard_cache.pkl"
+
+def load_dashboard_data():
+    if 'dashboard_df' in st.session_state:
+        return st.session_state.dashboard_df
+    if os.path.exists(DASHBOARD_CACHE_FILE):
+        try:
+            df = pd.read_pickle(DASHBOARD_CACHE_FILE)
+            st.session_state.dashboard_df = df
+            return df
+        except:
+            return None
+    return None
+
+def save_dashboard_data(df):
+    st.session_state.dashboard_df = df
+    df.to_pickle(DASHBOARD_CACHE_FILE)
+    # 데이터 저장 시 담당자 명단 즉시 동기화
+    targets_data = load_targets()
+    excel_managers = sorted(list(set(
+        df['Deal - 담당자_고객'].dropna().unique().tolist() + 
+        df['Deal - 담당자_관리'].dropna().unique().tolist() + 
+        df['Deal - 담당자_소싱'].dropna().unique().tolist()
+    )))
+    updated = False
+    for manager in excel_managers:
+        if manager not in targets_data:
+            targets_data[manager] = {f"q{i}": {"mm": 0.0, "sales": 0.0, "profit": 0.0} for i in range(1, 5)}
+            updated = True
+    if updated:
+        save_targets(targets_data)
+
+def delete_dashboard_data():
+    if 'dashboard_df' in st.session_state:
+        del st.session_state.dashboard_df
+    if os.path.exists(DASHBOARD_CACHE_FILE):
+        os.remove(DASHBOARD_CACHE_FILE)
 
 def load_targets():
     if os.path.exists(TARGETS_FILE):
@@ -54,6 +93,8 @@ if st.sidebar.button("📊 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
 if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
+if st.sidebar.button("📈 목표 달성률 확인하기", use_container_width=True):
+    st.session_state.page = "achievement"
 
 st.sidebar.write("---")
 
@@ -63,20 +104,26 @@ if st.session_state.page == "dashboard":
         uploaded_file = st.file_uploader("엑셀 파일을 업로드하세요 (.xlsx)", type=["xlsx"], key="dashboard_uploader")
         
         if uploaded_file is not None:
-            try:
-                # 파일을 읽어서 세션 스테이트에 저장
-                df_loaded = pd.read_excel(uploaded_file)
-                st.session_state.dashboard_df = df_loaded
-                st.success("데이터가 로드되었습니다!")
-            except Exception as e:
-                st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
+            # 파일이 새로 올라왔을 때만 처리하기 위해 체크
+            if 'last_uploaded_file' not in st.session_state or st.session_state.last_uploaded_file != uploaded_file.name:
+                with st.status("🚀 실적 데이터 로드 중...", expanded=True) as status:
+                    try:
+                        st.write("📂 엑셀 파일 읽는 중...")
+                        df_loaded = pd.read_excel(uploaded_file)
+                        st.write("💾 데이터 저장 및 명단 동기화 중...")
+                        save_dashboard_data(df_loaded)
+                        st.session_state.last_uploaded_file = uploaded_file.name
+                        status.update(label="✅ 로드 완료!", state="complete", expanded=False)
+                        st.success("데이터가 로드되었습니다! 페이지를 업데이트합니다.")
+                        st.rerun()
+                    except Exception as e:
+                        status.update(label="❌ 오류 발생", state="error")
+                        st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
         
-        if 'dashboard_df' in st.session_state:
+        if load_dashboard_data() is not None:
             if st.button("🗑️ 업로드된 데이터 삭제", use_container_width=True):
-                del st.session_state.dashboard_df
-                if 'dashboard_uploader' in st.session_state:
-                    # uploader 위젯 초기화 (고급 기법: 내부 키 제거는 안되므로 멘트 유도)
-                    st.info("데이터가 삭제되었습니다. 새로운 파일을 업로드해 주세요.")
+                delete_dashboard_data()
+                st.info("데이터가 삭제되었습니다. 새로운 파일을 업로드해 주세요.")
                 st.rerun()
     st.sidebar.write("---")
 
@@ -88,31 +135,34 @@ if st.session_state.page == "targets":
         st.download_button("📥 양식 다운로드", data=template_excel, file_name="target_template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
         uploaded_target_file = st.file_uploader("엑셀 업로드", type=["xlsx"], key="sidebar_target_uploader")
         if uploaded_target_file:
-            with st.status("🚀 데이터 반영 중...", expanded=True) as status:
-                try:
-                    st.write("📂 파일 읽는 중...")
-                    up_df = pd.read_excel(uploaded_target_file)
-                    up_df['성명'] = up_df['성명'].ffill()
-                    new_targets = targets_data.copy()
-                    for mgr in up_df['성명'].unique():
-                        if pd.isna(mgr): continue
-                        if mgr not in new_targets:
-                            new_targets[mgr] = {f"q{i}": {"mm": 0, "sales": 0, "profit": 0} for i in range(1, 5)}
-                        mgr_rows = up_df[up_df['성명'] == mgr]
-                        for _, row in mgr_rows.iterrows():
-                            cat_label = row['내용']
-                            category = "mm" if cat_label == "MM" else "sales" if "매출" == cat_label else "profit" if "매출이익" == cat_label else None
-                            if category:
-                                for i in range(1, 5):
-                                    val = row[f'{i}/4분기 목표'] if f'{i}/4분기 목표' in row else 0
-                                    new_targets[mgr][f"q{i}"][category] = float(val) if not pd.isna(val) else 0.0
-                    save_targets(new_targets)
-                    status.update(label="✅ 반영 완료!", state="complete", expanded=False)
-                    st.success("데이터가 반영되었습니다!")
-                    st.rerun()
-                except Exception as e:
-                    status.update(label="❌ 오류 발생", state="error")
-                    st.error(f"오류: {e}")
+            # 파일이 새로 올라왔을 때만 처리하기 위해 체크
+            if 'last_target_file' not in st.session_state or st.session_state.last_target_file != uploaded_target_file.name:
+                with st.status("🚀 데이터 반영 중...", expanded=True) as status:
+                    try:
+                        st.write("📂 파일 읽는 중...")
+                        up_df = pd.read_excel(uploaded_target_file)
+                        up_df['성명'] = up_df['성명'].ffill()
+                        new_targets = targets_data.copy()
+                        for mgr in up_df['성명'].unique():
+                            if pd.isna(mgr): continue
+                            if mgr not in new_targets:
+                                new_targets[mgr] = {f"q{i}": {"mm": 0, "sales": 0, "profit": 0} for i in range(1, 5)}
+                            mgr_rows = up_df[up_df['성명'] == mgr]
+                            for _, row in mgr_rows.iterrows():
+                                cat_label = row['내용']
+                                category = "mm" if cat_label == "MM" else "sales" if "매출" == cat_label else "profit" if "매출이익" == cat_label else None
+                                if category:
+                                    for i in range(1, 5):
+                                        val = row[f'{i}/4분기 목표'] if f'{i}/4분기 목표' in row else 0
+                                        new_targets[mgr][f"q{i}"][category] = float(val) if not pd.isna(val) else 0.0
+                        save_targets(new_targets)
+                        st.session_state.last_target_file = uploaded_target_file.name
+                        status.update(label="✅ 반영 완료!", state="complete", expanded=False)
+                        st.success("데이터가 반영되었습니다!")
+                        st.rerun()
+                    except Exception as e:
+                        status.update(label="❌ 오류 발생", state="error")
+                        st.error(f"오류: {e}")
         st.write("---")
         if st.button("🚨 모든 데이터 초기화", use_container_width=True):
             st.session_state.show_reset_confirm = True
@@ -154,6 +204,37 @@ if st.session_state.page == "targets":
                     st.rerun()
         else:
             st.info("삭제할 담당자가 없습니다.")
+
+# 게이지 차트 생성 함수
+def draw_gauge(current_val, target_val, title):
+    percentage = (current_val / target_val * 100) if target_val > 0 else 0
+    
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number+delta",
+        value = current_val,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': f"<b>{title}</b><br><span style='font-size:0.8em;color:gray'>달성률: {percentage:.1f}%</span>"},
+        delta = {'reference': target_val, 'increasing': {'color': "green"}},
+        number = {'valueformat': ',.0f', 'suffix': "원"},
+        gauge = {
+            'axis': {'range': [0, max(target_val * 1.2, current_val * 1.1, 100)], 'tickformat': ',.0f'},
+            'bar': {'color': "#636EFA"},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [0, target_val], 'color': '#E5ECF6'},
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': target_val
+            }
+        }
+    ))
+    
+    fig.update_layout(height=500, margin=dict(l=30, r=30, t=150, b=20))
+    return fig
 
 # 메인 화면 - 목표 설정
 if st.session_state.page == "targets":
@@ -219,12 +300,124 @@ if st.session_state.page == "targets":
     if st.button("📊 대시보드로 돌아가기"):
         st.session_state.page = "dashboard"; st.rerun()
 
+# 메인 화면 - 목표 달성률 확인
+elif st.session_state.page == "achievement":
+    st.title("📈 목표 달성률 확인하기")
+    
+    df = load_dashboard_data()
+    targets_data = load_targets()
+    
+    if df is None:
+        st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
+        if st.button("📊 실적 대시보드로 이동"):
+            st.session_state.page = "dashboard"
+            st.rerun()
+        st.stop()
+        
+    if not targets_data:
+        st.warning("🎯 목표 설정하기에서 먼저 목표를 설정해 주세요.")
+        if st.button("🎯 목표 설정으로 이동"):
+            st.session_state.page = "targets"
+            st.rerun()
+        st.stop()
+
+    # 조회 조건 설정
+    st.sidebar.header("🔍 달성률 조회 조건")
+    period_map = {
+        "1분기 (1-3월)": (list(range(1, 4)), ["q1"]),
+        "2분기 (4-6월)": (list(range(4, 7)), ["q2"]),
+        "3분기 (7-9월)": (list(range(7, 10)), ["q3"]),
+        "4분기 (10-12월)": (list(range(10, 13)), ["q4"]),
+        "상반기 (1-6월)": (list(range(1, 7)), ["q1", "q2"]),
+        "하반기 (7-12월)": (list(range(7, 13)), ["q3", "q4"]),
+        "전체 (1-12월)": (list(range(1, 13)), ["q1", "q2", "q3", "q4"])
+    }
+    selected_period_label = st.sidebar.selectbox("조회 기간 선택", list(period_map.keys()))
+    months, quarters = period_map[selected_period_label]
+    selected_months = [f"{m:02d}" for m in months]
+    
+    all_managers = sorted(targets_data.keys())
+    selected_manager = st.sidebar.selectbox("조회할 담당자 선택", all_managers)
+    
+    st.write(f"### 👤 {selected_manager}님의 {selected_period_label} 달성 현황")
+    
+    # 1. 목표 데이터 계산 (천원 단위 -> 원 단위로 변환)
+    m_target_data = targets_data[selected_manager]
+    target_sales = sum(float(m_target_data[q]["sales"]) for q in quarters) * 1000
+    target_profit = sum(float(m_target_data[q]["profit"]) for q in quarters) * 1000
+    
+    # 2. 실제 실적 데이터 계산 (40/30/30 로직 적용)
+    sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
+    profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
+    
+    # 데이터 정제 함수 (기존 로직 활용)
+    def clean_currency_val(val):
+        if pd.isna(val): return 0
+        s = str(val).replace(r'[^0-9.-]', '')
+        try: return float(s)
+        except: return 0
+
+    actual_sales = 0
+    actual_profit = 0
+    
+    # 실적 계산 로직
+    role_configs = [
+        (0.4, 'Deal - 담당자_고객'),
+        (0.3, 'Deal - 담당자_관리'),
+        (0.3, 'Deal - 담당자_소싱')
+    ]
+    
+    for ratio, mgr_col in role_configs:
+        # 해당 담당자가 맡은 역할의 데이터만 필터링
+        mgr_df = df[df[mgr_col] == selected_manager]
+        for col in sales_cols:
+            if col in mgr_df.columns:
+                actual_sales += (mgr_df[col].apply(clean_currency_val) * ratio).sum()
+        for col in profit_cols:
+            if col in mgr_df.columns:
+                actual_profit += (mgr_df[col].apply(clean_currency_val) * ratio).sum()
+
+    # 화면 표시
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if target_sales > 0:
+            st.plotly_chart(draw_gauge(actual_sales, target_sales, "💰 매출 달성 현황"), use_container_width=True)
+        else:
+            st.info("설정된 매출 목표가 없습니다.")
+            st.metric("실제 매출 실적", f"{actual_sales:,.0f}원")
+            
+    with col2:
+        if target_profit > 0:
+            st.plotly_chart(draw_gauge(actual_profit, target_profit, "📉 이익 달성 현황"), use_container_width=True)
+        else:
+            st.info("설정된 이익 목표가 없습니다.")
+            st.metric("실제 이익 실적", f"{actual_profit:,.0f}원")
+
+    # 상세 표 추가
+    st.write("---")
+    st.write("#### 📊 요약 데이터")
+    summary_data = {
+        "구분": ["매출", "이익"],
+        "목표 금액": [f"{target_sales:,.0f}원", f"{target_profit:,.0f}원"],
+        "실제 실적": [f"{actual_sales:,.0f}원", f"{actual_profit:,.0f}원"],
+        "달성률": [
+            f"{(actual_sales/target_sales*100):.1f}%" if target_sales > 0 else "-",
+            f"{(actual_profit/target_profit*100):.1f}%" if target_profit > 0 else "-"
+        ]
+    }
+    st.table(pd.DataFrame(summary_data))
+
+    if st.button("📊 실적 대시보드로 돌아가기"):
+        st.session_state.page = "dashboard"
+        st.rerun()
+
 # 메인 화면 - 실적 대시보드
 else:
     st.title("📊 Deal-ito 통합 실적/이익 대시보드")
     st.markdown("좌측 사이드바에서 엑셀 파일을 업로드하면 실적을 자동 계산합니다.")
-    if 'dashboard_df' in st.session_state:
-        df = st.session_state.dashboard_df
+    df = load_dashboard_data()
+    if df is not None:
         targets_data = load_targets()
         excel_managers = sorted(list(set(df['Deal - 담당자_고객'].dropna().unique().tolist() + df['Deal - 담당자_관리'].dropna().unique().tolist() + df['Deal - 담당자_소싱'].dropna().unique().tolist())))
         updated = False
