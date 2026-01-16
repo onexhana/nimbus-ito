@@ -221,54 +221,40 @@ def clean_currency_val(val):
 def draw_gauge(current_val, target_val, title):
     percentage = (current_val / target_val * 100) if target_val > 0 else 0
     
-    # 차트의 최대치를 개인 목표 금액으로 설정 (최소 100)
+    # 사용자의 요청대로 목표 금액을 100% 지점(Max)으로 설정
     max_range = target_val if target_val > 0 else max(current_val, 100)
-
+    
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number", # delta 제거
-        value = current_val,
+        mode = "gauge", # redundant number 제거
+        value = min(current_val, max_range), # 바는 일단 max_range까지만
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"<b>{title}</b>", 'font': {'size': 24}},
-        number = {'valueformat': ',.0f', 'suffix': "원", 'font': {'size': 40}},
+        title = {'text': f"<b>{title}</b>", 'font': {'size': 20}},
         gauge = {
             'axis': {
                 'range': [0, max_range], 
                 'tickmode': 'array',
                 'tickvals': [0, max_range * 0.25, max_range * 0.5, max_range * 0.75, max_range],
                 'ticktext': ['0%', '25%', '50%', '75%', '100%'],
-                'tickfont': {'size': 15}
+                'tickfont': {'size': 12}
             },
             'bar': {'color': "#636EFA"},
             'bgcolor': "white",
-            'borderwidth': 2,
+            'borderwidth': 1,
             'bordercolor': "gray",
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': target_val
-            }
         }
     ))
     
-    # 반원 안에 목표 금액과 실제 실적 텍스트 추가
+    # 중앙에 핵심 정보 배치 (달성률, 목표, 실적)
     fig.add_annotation(
-        x=0.5, y=0.45,
-        text=f"목표 금액 : {target_val:,.0f}원<br>실제 실적 : {current_val:,.0f}원",
+        x=0.5, y=0.35,
+        text=f"<span style='font-size:26px; font-weight:bold; color:#636EFA;'>{percentage:.1f}% 달성</span><br><br>" +
+             f"<span style='font-size:15px; color:gray;'>목표: {target_val:,.0f}원</span><br>" +
+             f"<span style='font-size:18px; font-weight:bold;'>실적: {current_val:,.0f}원</span>",
         showarrow=False,
-        font=dict(size=18, color="black"),
         align="center"
     )
     
-    # 달성률 텍스트 추가
-    fig.add_annotation(
-        x=0.5, y=0.6,
-        text=f"달성률: {percentage:.1f}%",
-        showarrow=False,
-        font=dict(size=20, color="gray"),
-        align="center"
-    )
-    
-    fig.update_layout(height=500, margin=dict(l=30, r=30, t=80, b=20))
+    fig.update_layout(height=400, margin=dict(l=50, r=50, t=80, b=20))
     return fig
 
 # 메인 화면 - 목표 설정
@@ -391,28 +377,59 @@ elif st.session_state.page == "achievement":
     target_profit = sum(float(m_target_data[q]["profit"]) for q in quarters) * 1000
     
     # 2. 실제 실적 데이터 계산 (40/30/30 로직 적용)
+    # 중복 제거 강화: 'Deal - 이름'이 비어있거나 합계인 행 제외
+    df = df[df['Deal - 이름'].notna() & (df['Deal - 이름'].astype(str).str.strip() != "")]
+    exclude_keywords = ['합계', '소계', 'total', 'sum']
+    df = df[~df['Deal - 이름'].astype(str).str.lower().str.contains('|'.join(exclude_keywords), na=False)]
+
+    for col in ['Deal - 담당자_고객', 'Deal - 담당자_관리', 'Deal - 담당자_소싱']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
     sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
     profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
     
-    actual_sales = 0
-    actual_profit = 0
-    
-    # 실적 계산 로직
     role_configs = [
-        (0.4, 'Deal - 담당자_고객'),
-        (0.3, 'Deal - 담당자_관리'),
-        (0.3, 'Deal - 담당자_소싱')
+        (0.4, 'Deal - 담당자_고객', '고객'),
+        (0.3, 'Deal - 담당자_관리', '관리'),
+        (0.3, 'Deal - 담당자_소싱', '소싱')
     ]
     
-    for ratio, mgr_col in role_configs:
-        # 해당 담당자가 맡은 역할의 데이터만 필터링 (공백 제거 후 비교)
-        mgr_df = df[df[mgr_col].astype(str).str.strip() == selected_manager.strip()]
-        for col in sales_cols:
-            if col in mgr_df.columns:
-                actual_sales += (mgr_df[col].apply(clean_currency_val) * ratio).sum()
-        for col in profit_cols:
-            if col in mgr_df.columns:
-                actual_profit += (mgr_df[col].apply(clean_currency_val) * ratio).sum()
+    actual_sales = 0.0
+    actual_profit = 0.0
+    detail_records = []
+    
+    for ratio, mgr_col, role_name in role_configs:
+        if mgr_col in df.columns:
+            mgr_mask = df[mgr_col] == selected_manager
+            matched_df = df[mgr_mask].copy()
+            if not matched_df.empty:
+                for idx, row in matched_df.iterrows():
+                    deal_name = row['Deal - 이름']
+                    # 각 월별 실적을 개별적으로 수집
+                    monthly_values = {m: clean_currency_val(row[f"Deal - @월별매출 ({m})"]) for m in selected_months if f"Deal - @월별매출 ({m})" in row}
+                    monthly_profit_values = {m: clean_currency_val(row[f"Deal - @월별이익 ({m})"]) for m in selected_months if f"Deal - @월별이익 ({m})" in row}
+                    
+                    row_sales = sum(monthly_values.values())
+                    row_profit = sum(monthly_profit_values.values())
+                    
+                    if row_sales > 0 or row_profit > 0:
+                        actual_sales += row_sales * ratio
+                        actual_profit += row_profit * ratio
+                        
+                        # 상세 내역 기록 생성
+                        record = {
+                            "Deal명": deal_name,
+                            "역할": role_name,
+                            "비중": f"{int(ratio*100)}%",
+                            "원매출(합계)": row_sales,
+                            "반영매출": row_sales * ratio
+                        }
+                        # 각 월별 실적 컬럼 추가
+                        for m, val in monthly_values.items():
+                            record[f"{int(m)}월 매출"] = val
+                        
+                        detail_records.append(record)
 
     # 화면 표시
     col1, col2 = st.columns(2)
@@ -444,6 +461,19 @@ elif st.session_state.page == "achievement":
         ]
     }
     st.table(pd.DataFrame(summary_data))
+
+    with st.expander(f"📋 {selected_manager}님의 기여 내역 상세 확인", expanded=False):
+        if detail_records:
+            df_detail = pd.DataFrame(detail_records)
+            st.dataframe(
+                df_detail.style.format({
+                    "원매출": "{:,.0f}원", "반영매출": "{:,.0f}원",
+                    "원이익": "{:,.0f}원", "반영이익": "{:,.0f}원"
+                }),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("선택된 기간 내 실적 내역이 없습니다.")
 
     if st.button("📊 실적 대시보드로 돌아가기"):
         st.session_state.page = "dashboard"
