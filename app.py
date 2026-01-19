@@ -260,7 +260,7 @@ def draw_gauge(current_val, target_val, title):
 # 메인 화면 - 목표 설정
 if st.session_state.page == "targets":
     st.title("🎯 담당자별 목표 설정")
-    st.markdown("분기별 목표를 입력하세요. (단위: 천원)")
+    st.markdown("분기별 목표를 입력하세요. (단위: 만원)")
     targets_data = load_targets()
     all_mgrs = sorted(targets_data.keys())
     st.write("### 👥 담당자 선택")
@@ -318,11 +318,11 @@ if st.session_state.page == "targets":
                     with cols[i]:
                         st.markdown(f"**{i+1}/4분기**")
                         mm = st.number_input(f"MM", value=float(m_data[q]["mm"]), key=f"{selected_m}_{q}_mm", step=0.1)
-                        sales = st.number_input(f"매출(천원)", value=float(m_data[q]["sales"]), key=f"{selected_m}_{q}_sales", step=1000.0)
-                        profit = st.number_input(f"이익(천원)", value=float(m_data[q]["profit"]), key=f"{selected_m}_{q}_profit", step=1000.0)
+                        sales = st.number_input(f"매출(만원)", value=float(m_data[q]["sales"]), key=f"{selected_m}_{q}_sales", step=100.0)
+                        profit = st.number_input(f"이익(만원)", value=float(m_data[q]["profit"]), key=f"{selected_m}_{q}_profit", step=100.0)
                         updated_m_data[q] = {"mm": mm, "sales": sales, "profit": profit}
                 total_mm = sum(q_val["mm"] for q_val in updated_m_data.values()); total_sales = sum(q_val["sales"] for q_val in updated_m_data.values()); total_profit = sum(q_val["profit"] for q_val in updated_m_data.values())
-                c1, c2, c3 = st.columns(3); c1.metric("연간 총 MM", f"{total_mm:.2f}"); c2.metric("연간 총 매출", f"{total_sales:,.0f}천원"); c3.metric("연간 총 이익", f"{total_profit:,.0f}천원")
+                c1, c2, c3 = st.columns(3); c1.metric("연간 총 MM", f"{total_mm:.2f}"); c2.metric("연간 총 매출", f"{total_sales:,.0f}만원"); c3.metric("연간 총 이익", f"{total_profit:,.0f}만원")
                 if st.button(f"💾 {selected_m}님 목표 저장", use_container_width=True, type="primary"):
                     targets_data[selected_m] = updated_m_data; save_targets(targets_data); st.success(f"{selected_m}님의 목표가 저장되었습니다!"); st.rerun()
                 if st.button(f"🗑️ {selected_m}님 삭제", key=f"del_btn_{selected_m}"):
@@ -367,20 +367,28 @@ elif st.session_state.page == "achievement":
     selected_months = [f"{m:02d}" for m in months]
     
     all_managers = sorted(targets_data.keys())
-    selected_manager = st.sidebar.selectbox("조회할 담당자 선택", all_managers)
+    selected_manager = st.sidebar.selectbox("조회할 담당자 선택", ["선택하세요"] + all_managers)
+    
+    if selected_manager == "선택하세요":
+        st.info("👈 좌측 사이드바에서 조회할 담당자를 선택해 주세요.")
+        st.stop()
     
     st.write(f"### 👤 {selected_manager}님의 {selected_period_label} 달성 현황")
     
-    # 1. 목표 데이터 계산 (천원 단위 -> 원 단위로 변환)
+    # 1. 목표 데이터 계산 (만원 단위 -> 원 단위로 변환)
     m_target_data = targets_data[selected_manager]
-    target_sales = sum(float(m_target_data[q]["sales"]) for q in quarters) * 1000
-    target_profit = sum(float(m_target_data[q]["profit"]) for q in quarters) * 1000
+    target_sales = sum(float(m_target_data[q]["sales"]) for q in quarters) * 10000
+    target_profit = sum(float(m_target_data[q]["profit"]) for q in quarters) * 10000
     
     # 2. 실제 실적 데이터 계산 (40/30/30 로직 적용)
     # 중복 제거 강화: 'Deal - 이름'이 비어있거나 합계인 행 제외
     df = df[df['Deal - 이름'].notna() & (df['Deal - 이름'].astype(str).str.strip() != "")]
     exclude_keywords = ['합계', '소계', 'total', 'sum']
     df = df[~df['Deal - 이름'].astype(str).str.lower().str.contains('|'.join(exclude_keywords), na=False)]
+
+    # Deal명 구분을 위해 People - 이름 추가
+    if 'People - 이름' in df.columns:
+        df['Deal - 이름'] = df['Deal - 이름'].astype(str) + " (" + df['People - 이름'].fillna("미지정").astype(str) + ")"
 
     for col in ['Deal - 담당자_고객', 'Deal - 담당자_관리', 'Deal - 담당자_소싱']:
         if col in df.columns:
@@ -465,11 +473,18 @@ elif st.session_state.page == "achievement":
     with st.expander(f"📋 {selected_manager}님의 기여 내역 상세 확인", expanded=False):
         if detail_records:
             df_detail = pd.DataFrame(detail_records)
+            # 수치 컬럼만 포맷팅 적용
+            format_dict = {}
+            if "원매출(합계)" in df_detail.columns: format_dict["원매출(합계)"] = "{:,.0f}원"
+            if "반영매출" in df_detail.columns: format_dict["반영매출"] = "{:,.0f}원"
+            
+            # 월별 매출 컬럼들도 소수점 제거
+            for col in df_detail.columns:
+                if "월 매출" in col:
+                    format_dict[col] = "{:,.0f}원"
+
             st.dataframe(
-                df_detail.style.format({
-                    "원매출": "{:,.0f}원", "반영매출": "{:,.0f}원",
-                    "원이익": "{:,.0f}원", "반영이익": "{:,.0f}원"
-                }),
+                df_detail.style.format(format_dict),
                 use_container_width=True, hide_index=True
             )
         else:
@@ -521,6 +536,10 @@ else:
         exclude_keywords = ['합계', '소계', 'total', 'sum']
         df = df[~df['Deal - 이름'].astype(str).str.lower().str.contains('|'.join(exclude_keywords), na=False)]
         
+        # Deal명 구분을 위해 People - 이름 추가
+        if 'People - 이름' in df.columns:
+            df['Deal - 이름'] = df['Deal - 이름'].astype(str) + " (" + df['People - 이름'].fillna("미지정").astype(str) + ")"
+
         for col in ['Deal - 담당자_고객', 'Deal - 담당자_관리', 'Deal - 담당자_소싱']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
@@ -552,10 +571,10 @@ else:
             for role_label, ratio, manager_col in role_configs:
                 if manager_col in df.columns:
                     temp = df[['Deal - 이름', manager_col, target_col]].copy()
-                    temp['반영비율'] = f"{int(ratio*100)}%"
+                    temp['비중_num'] = ratio
                     temp['반영실적'] = temp[target_col] * ratio
                     temp['역할'] = role_label
-                    temp.columns = ['Deal명', '담당자', '원금액', '반영비율', '반영실적', '역할']
+                    temp.columns = ['Deal명', '담당자', '원금액', '비중_num', '반영실적', '역할']
                     individual_results.append(temp)
             
             combined = pd.concat(individual_results)
@@ -576,10 +595,22 @@ else:
             
             with st.expander("📋 매출 상세 기여 내역 확인 (어떻게 계산되었나요?)", expanded=False):
                 st.markdown("""
-                **계산 규칙**: 각 Deal의 해당 월 매출에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.
+                **계산 규칙**: 각 Deal의 해당 월 매출에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.  
+                한 담당자가 여러 역할을 수행한 경우(예: 고객+소싱), 해당 비율이 합산되어 표시됩니다.
                 """)
+                
+                # 상세 내역 그룹화하여 표시
+                m_df_display = m_df[m_df['반영실적'] > 0].groupby(['Deal명', '담당자']).agg({
+                    '원금액': 'first',
+                    '역할': lambda x: ', '.join(x),
+                    '비중_num': 'sum',
+                    '반영실적': 'sum'
+                }).reset_index()
+                m_df_display['반영비율'] = m_df_display['비중_num'].apply(lambda x: f"{int(x*100)}%")
+                m_df_display = m_df_display[['Deal명', '담당자', '역할', '원금액', '반영비율', '반영실적']]
+
                 st.dataframe(
-                    m_df[m_df['반영실적'] > 0].style.format({
+                    m_df_display.style.format({
                         '원금액': '{:,.0f}원', 
                         '반영실적': '{:,.0f}원'
                     }), 
@@ -597,10 +628,22 @@ else:
             
             with st.expander("📋 이익 상세 기여 내역 확인 (어떻게 계산되었나요?)", expanded=False):
                 st.markdown("""
-                **계산 규칙**: 각 Deal의 해당 월 이익에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.
+                **계산 규칙**: 각 Deal의 해당 월 이익에 대해 **고객(40%), 관리(30%), 소싱(30%)** 비율을 적용하여 합산합니다.  
+                한 담당자가 여러 역할을 수행한 경우(예: 고객+소싱), 해당 비율이 합산되어 표시됩니다.
                 """)
+                
+                # 상세 내역 그룹화하여 표시
+                p_df_display = p_df[p_df['반영실적'] > 0].groupby(['Deal명', '담당자']).agg({
+                    '원금액': 'first',
+                    '역할': lambda x: ', '.join(x),
+                    '비중_num': 'sum',
+                    '반영실적': 'sum'
+                }).reset_index()
+                p_df_display['반영비율'] = p_df_display['비중_num'].apply(lambda x: f"{int(x*100)}%")
+                p_df_display = p_df_display[['Deal명', '담당자', '역할', '원금액', '반영비율', '반영실적']]
+
                 st.dataframe(
-                    p_df[p_df['반영실적'] > 0].style.format({
+                    p_df_display.style.format({
                         '원금액': '{:,.0f}원', 
                         '반영실적': '{:,.0f}원'
                     }), 
