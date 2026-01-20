@@ -252,9 +252,19 @@ elif st.session_state.page == "targets":
     def on_select_all_change():
         for mgr in all_mgrs:
             st.session_state[f"sel_{mgr}"] = st.session_state.select_all_key
+            
+    def on_select_internal_change():
+        for mgr in internal_mgrs:
+            st.session_state[f"sel_{mgr}"] = st.session_state.select_internal_key
+            
+    def on_select_external_change():
+        for mgr in external_mgrs:
+            st.session_state[f"sel_{mgr}"] = st.session_state.select_external_key
     
-    col_sel1, col_sel2 = st.columns([1, 5])
+    col_sel1, col_sel2, col_sel3 = st.columns(3)
     select_all = col_sel1.checkbox("모든 인력 전체 선택", key="select_all_key", on_change=on_select_all_change)
+    select_internal = col_sel2.checkbox("내부 인력 전체 선택", key="select_internal_key", on_change=on_select_internal_change)
+    select_external = col_sel3.checkbox("외부 인력 전체 선택", key="select_external_key", on_change=on_select_external_change)
     
     selected_m_list = []
     internal_mgrs = [m for m in all_mgrs if targets_data[m].get("type") == "내부"]
@@ -396,6 +406,21 @@ elif st.session_state.page == "targets":
                 except Exception as e:
                     status.update(label="❌ 오류 발생", state="error")
                     st.error(f"엑셀 처리 중 오류가 발생했습니다: {e}")
+        
+        st.write("---")
+        if st.button("🚨 모든 데이터 초기화", use_container_width=True):
+            st.session_state.show_reset_confirm = True
+        
+        if st.session_state.get('show_reset_confirm', False):
+            st.warning("⚠️ 모든 목표 데이터를 삭제하시겠습니까?")
+            c1, c2 = st.columns(2)
+            if c1.button("✅ 예", use_container_width=True):
+                save_targets({})
+                st.session_state.show_reset_confirm = False
+                st.rerun()
+            if c2.button("❌ 아니오", use_container_width=True):
+                st.session_state.show_reset_confirm = False
+                st.rerun()
 
 # 3. 목표 달성률 확인
 elif st.session_state.page == "achievement":
@@ -413,15 +438,30 @@ elif st.session_state.page == "achievement":
     selected_months = [f"{m:02d}" for m in months]
     
     all_managers = sorted(targets_data.keys())
-    selected_manager = st.sidebar.selectbox("조회할 담당자 선택", ["선택하세요", "★ 전체 담당자 한눈에 보기"] + all_managers)
+    internal_managers = [m for m in all_managers if targets_data[m].get("type") == "내부"]
+    external_managers = [m for m in all_managers if targets_data[m].get("type") == "외부"]
+    
+    selected_manager = st.sidebar.selectbox(
+        "조회할 담당자 선택", 
+        ["선택하세요", "★ 전체 담당자 한눈에 보기", "🏠 내부 인력 전체보기", "🌐 외부 인력 전체보기"] + all_managers
+    )
     
     if selected_manager == "선택하세요": st.info("👈 좌측 사이드바에서 조회할 담당자를 선택해 주세요."); st.stop()
     
     st.write(f"### 👤 {selected_manager}님의 {selected_period_label} 달성 현황")
+    
     if selected_manager == "★ 전체 담당자 한눈에 보기":
         target_sales = sum(float(targets_data[m][q]["sales"]) for m in all_managers for q in quarters) * 10000
         target_profit = sum(float(targets_data[m][q]["profit"]) for m in all_managers for q in quarters) * 10000
         managers_to_check = all_managers
+    elif selected_manager == "🏠 내부 인력 전체보기":
+        target_sales = sum(float(targets_data[m][q]["sales"]) for m in internal_managers for q in quarters) * 10000
+        target_profit = sum(float(targets_data[m][q]["profit"]) for m in internal_managers for q in quarters) * 10000
+        managers_to_check = internal_managers
+    elif selected_manager == "🌐 외부 인력 전체보기":
+        target_sales = sum(float(targets_data[m][q]["sales"]) for m in external_managers for q in quarters) * 10000
+        target_profit = sum(float(targets_data[m][q]["profit"]) for m in external_managers for q in quarters) * 10000
+        managers_to_check = external_managers
     else:
         target_sales = sum(float(targets_data[selected_manager][q]["sales"]) for q in quarters) * 10000
         target_profit = sum(float(targets_data[selected_manager][q]["profit"]) for q in quarters) * 10000
