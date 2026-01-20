@@ -432,7 +432,7 @@ elif st.session_state.page == "achievement":
     if not targets_data: st.warning("🎯 목표 설정하기에서 먼저 목표를 설정해 주세요."); st.stop()
 
     st.sidebar.header("🔍 달성률 조회 조건")
-    period_map = {"1분기 (1-3월)": (list(range(1, 4)), ["q1"]), "2분기 (4-6월)": (list(range(4, 7)), ["q2"]), "3분기 (7-9월)": (list(range(7, 10)), ["q3"]), "4분기 (10-12월)": (list(range(10, 13)), ["q4"]), "상반기 (1-6월)": (list(range(1, 7)), ["q1", "q2"]), "하반기 (7-12월)": (list(range(7, 13)), ["q3", "q4"]), "전체 (1-12월)": (list(range(1, 13)), ["q1", "q2", "q3", "q4"])}
+    period_map = {"1분기 (1-3월)": (list(range(1, 4)), ["q1"]), "2분기 (4-6월)": (list(range(4, 7)), ["q2"]), "3분기 (7-9월)": (list(range(7, 10)), ["q3"]), "4분기 (10-12월)": (list(range(10, 13)), ["q4"]), "1-9월": (list(range(1, 10)), ["q1", "q2", "q3"]), "상반기 (1-6월)": (list(range(1, 7)), ["q1", "q2"]), "하반기 (7-12월)": (list(range(7, 13)), ["q3", "q4"]), "전체 (1-12월)": (list(range(1, 13)), ["q1", "q2", "q3", "q4"])}
     selected_period_label = st.sidebar.selectbox("조회 기간 선택", list(period_map.keys()))
     months, quarters = period_map[selected_period_label]
     selected_months = [f"{m:02d}" for m in months]
@@ -511,7 +511,7 @@ else:
     st.markdown("좌측 사이드바에서 엑셀 파일을 업로드하면 실적을 자동 계산합니다.")
     df = load_dashboard_data()
     if df is not None:
-        period_map = {"전체 (1-12월)": list(range(1, 13)), "1분기 (1-3월)": list(range(1, 4)), "2분기 (4-6월)": list(range(4, 7)), "3분기 (7-9월)": list(range(7, 10)), "4분기 (10-12월)": list(range(10, 13))}
+        period_map = {"전체 (1-12월)": list(range(1, 13)), "1-9월": list(range(1, 10)), "1분기 (1-3월)": list(range(1, 4)), "2분기 (4-6월)": list(range(4, 7)), "3분기 (7-9월)": list(range(7, 10)), "4분기 (10-12월)": list(range(10, 13))}
         selected_period_label = st.sidebar.selectbox("조회 기간 선택", list(period_map.keys()))
         selected_months = [f"{m:02d}" for m in period_map[selected_period_label]]
         
