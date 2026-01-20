@@ -92,6 +92,31 @@ def clean_currency_val(val):
     except ValueError:
         return 0.0
 
+def parse_period_input(input_str):
+    """'1-3' 형태의 입력을 받아 월 리스트와 분기 리스트 반환"""
+    try:
+        if not input_str or '-' not in input_str:
+            if input_str.isdigit():
+                start = end = int(input_str)
+            else:
+                return [f"{m:02d}" for m in range(1, 13)], ["q1", "q2", "q3", "q4"], "전체 (1-12월)"
+        else:
+            parts = input_str.split('-')
+            start, end = int(parts[0]), int(parts[1])
+        
+        months = list(range(start, end + 1))
+        selected_months = [f"{m:02d}" for m in months]
+        
+        quarters = []
+        if any(m in [1, 2, 3] for m in months): quarters.append("q1")
+        if any(m in [4, 5, 6] for m in months): quarters.append("q2")
+        if any(m in [7, 8, 9] for m in months): quarters.append("q3")
+        if any(m in [10, 11, 12] for m in months): quarters.append("q4")
+        
+        return selected_months, quarters, f"{start}-{end}월"
+    except:
+        return [f"{m:02d}" for m in range(1, 13)], ["q1", "q2", "q3", "q4"], "전체 (1-12월)"
+
 # 게이지 차트 생성 함수
 def draw_gauge(current_val, target_val, title, color="#636EFA", bg_color="#F0F2F6"):
     percentage = (current_val / target_val * 100) if target_val > 0 else 0
@@ -432,10 +457,8 @@ elif st.session_state.page == "achievement":
     if not targets_data: st.warning("🎯 목표 설정하기에서 먼저 목표를 설정해 주세요."); st.stop()
 
     st.sidebar.header("🔍 달성률 조회 조건")
-    period_map = {"1분기 (1-3월)": (list(range(1, 4)), ["q1"]), "2분기 (4-6월)": (list(range(4, 7)), ["q2"]), "3분기 (7-9월)": (list(range(7, 10)), ["q3"]), "4분기 (10-12월)": (list(range(10, 13)), ["q4"]), "1-9월": (list(range(1, 10)), ["q1", "q2", "q3"]), "상반기 (1-6월)": (list(range(1, 7)), ["q1", "q2"]), "하반기 (7-12월)": (list(range(7, 13)), ["q3", "q4"]), "전체 (1-12월)": (list(range(1, 13)), ["q1", "q2", "q3", "q4"])}
-    selected_period_label = st.sidebar.selectbox("조회 기간 선택", list(period_map.keys()))
-    months, quarters = period_map[selected_period_label]
-    selected_months = [f"{m:02d}" for m in months]
+    period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-3, 1-9)", value="1-12")
+    selected_months, quarters, selected_period_label = parse_period_input(period_input)
     
     all_managers = sorted(targets_data.keys())
     internal_managers = [m for m in all_managers if targets_data[m].get("type") == "내부"]
@@ -511,12 +534,31 @@ else:
     st.markdown("좌측 사이드바에서 엑셀 파일을 업로드하면 실적을 자동 계산합니다.")
     df = load_dashboard_data()
     if df is not None:
-        period_map = {"전체 (1-12월)": list(range(1, 13)), "1-9월": list(range(1, 10)), "1분기 (1-3월)": list(range(1, 4)), "2분기 (4-6월)": list(range(4, 7)), "3분기 (7-9월)": list(range(7, 10)), "4분기 (10-12월)": list(range(10, 13))}
-        selected_period_label = st.sidebar.selectbox("조회 기간 선택", list(period_map.keys()))
-        selected_months = [f"{m:02d}" for m in period_map[selected_period_label]]
+        st.sidebar.header("🔍 조회 조건 설정")
+        period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-3, 1-9)", value="1-12", key="dash_period_input")
+        selected_months, _, selected_period_label = parse_period_input(period_input)
         
         all_mgrs = sorted(list(set(df['Deal - 담당자_고객'].dropna().unique().tolist() + df['Deal - 담당자_관리'].dropna().unique().tolist() + df['Deal - 담당자_소싱'].dropna().unique().tolist())))
-        selected_managers = [mgr for mgr in all_mgrs if st.sidebar.checkbox(mgr, value=True, key=f"dash_sel_{mgr}")]
+        
+        # 담당자 선택을 드롭다운 형태로 변경
+        targets_data = load_targets()
+        internal_managers = [m for m in all_mgrs if targets_data.get(m, {}).get("type") == "내부"]
+        external_managers = [m for m in all_mgrs if targets_data.get(m, {}).get("type") == "외부"]
+        
+        selected_option = st.sidebar.selectbox(
+            "조회할 담당자 선택", 
+            ["★ 전체 담당자 한눈에 보기", "🏠 내부 인력 전체보기", "🌐 외부 인력 전체보기"] + all_mgrs,
+            key="dash_mgr_select"
+        )
+        
+        if selected_option == "★ 전체 담당자 한눈에 보기":
+            selected_managers = all_mgrs
+        elif selected_option == "🏠 내부 인력 전체보기":
+            selected_managers = internal_managers
+        elif selected_option == "🌐 외부 인력 전체보기":
+            selected_managers = external_managers
+        else:
+            selected_managers = [selected_option]
 
         df = df[~df['Deal - 이름'].astype(str).str.contains('합계|소계|total|sum', na=False)]
         if 'People - 이름' in df.columns: df['Deal - 이름'] = df['Deal - 이름'].astype(str) + " (" + df['People - 이름'].fillna("미지정").astype(str) + ")"
@@ -537,7 +579,8 @@ else:
                     temp.columns = ['Deal명', '담당자', '원금액', '비중_num', '반영실적', '역할']
                     results.append(temp)
             combined = pd.concat(results)
-            return combined[combined['담당자'].isin(selected_managers)] if selected_managers else combined
+            # 필터링 로직 수정: 선택된 담당자 리스트가 있으면 해당 명단만, 없으면 빈 데이터프레임 반환
+            return combined[combined['담당자'].isin(selected_managers)]
 
         tab1, tab2 = st.tabs(["💰 매출 분석", "📉 이익 분석"])
         for tab, col_name, label in [(tab1, '선택기간_총매출', "매출"), (tab2, '선택기간_총이익', "이익")]:
