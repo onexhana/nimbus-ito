@@ -496,7 +496,8 @@ elif st.session_state.page == "achievement":
     for col in ['Deal - 담당자_고객', 'Deal - 담당자_관리', 'Deal - 담당자_소싱']:
         if col in df.columns: df[col] = df[col].astype(str).str.strip()
 
-    actual_sales = 0.0; actual_profit = 0.0; detail_records = []
+    actual_sales = 0.0; actual_profit = 0.0; 
+    detail_sales_records = []; detail_profit_records = []
     role_configs = [(0.4, 'Deal - 담당자_고객', '고객'), (0.3, 'Deal - 담당자_관리', '관리'), (0.3, 'Deal - 담당자_소싱', '소싱')]
     
     for current_mgr in managers_to_check:
@@ -507,11 +508,21 @@ elif st.session_state.page == "achievement":
                     m_vals = {m: clean_currency_val(row[f"Deal - @월별매출 ({m})"]) for m in selected_months if f"Deal - @월별매출 ({m})" in row}
                     p_vals = {m: clean_currency_val(row[f"Deal - @월별이익 ({m})"]) for m in selected_months if f"Deal - @월별이익 ({m})" in row}
                     row_s = sum(m_vals.values()); row_p = sum(p_vals.values())
+                    
                     if row_s > 0 or row_p > 0:
                         actual_sales += row_s * ratio; actual_profit += row_p * ratio
-                        record = {"Deal명": row['Deal - 이름'], "담당자": current_mgr, "역할": role_name, "비중": f"{int(ratio*100)}%", "원매출(합계)": row_s, "반영매출": row_s * ratio}
-                        for m, val in m_vals.items(): record[f"{int(m)}월 매출"] = val
-                        detail_records.append(record)
+                        
+                        # 매출 상세 기록
+                        if row_s > 0:
+                            s_record = {"Deal명": row['Deal - 이름'], "담당자": current_mgr, "역할": role_name, "비중": f"{int(ratio*100)}%", "원매출(합계)": row_s, "반영매출": row_s * ratio}
+                            for m, val in m_vals.items(): s_record[f"{int(m)}월 매출"] = val
+                            detail_sales_records.append(s_record)
+                        
+                        # 이익 상세 기록
+                        if row_p > 0:
+                            p_record = {"Deal명": row['Deal - 이름'], "담당자": current_mgr, "역할": role_name, "비중": f"{int(ratio*100)}%", "원이익(합계)": row_p, "반영이익": row_p * ratio}
+                            for m, val in p_vals.items(): p_record[f"{int(m)}월 이익"] = val
+                            detail_profit_records.append(p_record)
 
     c1, c2 = st.columns(2)
     with c1: st.plotly_chart(draw_gauge(actual_sales, target_sales, "💰 매출 달성 현황", color="#EF553B", bg_color="#FCEAE8"), use_container_width=True)
@@ -521,12 +532,27 @@ elif st.session_state.page == "achievement":
     st.table(pd.DataFrame(summary_data))
 
     with st.expander(f"📋 {selected_manager}님의 기여 내역 상세 확인", expanded=False):
-        if detail_records:
-            df_detail = pd.DataFrame(detail_records)
-            format_dict = {"원매출(합계)": "{:,.0f}원", "반영매출": "{:,.0f}원"}
-            for col in df_detail.columns:
-                if "월 매출" in col: format_dict[col] = "{:,.0f}원"
-            st.dataframe(df_detail.style.format(format_dict), use_container_width=True, hide_index=True)
+        tab_s, tab_p = st.tabs(["💰 매출 상세", "📉 이익 상세"])
+        
+        with tab_s:
+            if detail_sales_records:
+                df_s = pd.DataFrame(detail_sales_records)
+                fmt_s = {"원매출(합계)": "{:,.0f}원", "반영매출": "{:,.0f}원"}
+                for col in df_s.columns:
+                    if "월 매출" in col: fmt_s[col] = "{:,.0f}원"
+                st.dataframe(df_s.style.format(fmt_s), use_container_width=True, hide_index=True)
+            else:
+                st.info("매출 내역이 없습니다.")
+                
+        with tab_p:
+            if detail_profit_records:
+                df_p = pd.DataFrame(detail_profit_records)
+                fmt_p = {"원이익(합계)": "{:,.0f}원", "반영이익": "{:,.0f}원"}
+                for col in df_p.columns:
+                    if "월 이익" in col: fmt_p[col] = "{:,.0f}원"
+                st.dataframe(df_p.style.format(fmt_p), use_container_width=True, hide_index=True)
+            else:
+                st.info("이익 내역이 없습니다.")
 
 # 4. 실적 대시보드
 else:
