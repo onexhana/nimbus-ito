@@ -128,7 +128,7 @@ def draw_gauge(current_val, target_val, title, color="#636EFA", bg_color="#F0F2F
         mode = "gauge", # redundant number 제거
         value = min(current_val, max_range), # 바는 일단 max_range까지만
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"<b>{title}</b>", 'font': {'size': 20}},
+        title = {'text': f"<b>{title}</b>", 'font': {'size': 20, 'color': color}},
         gauge = {
             'axis': {
                 'range': [0, max_range], 
@@ -146,9 +146,9 @@ def draw_gauge(current_val, target_val, title, color="#636EFA", bg_color="#F0F2F
     # 중앙에 핵심 정보 배치 (달성률, 목표, 실적)
     fig.add_annotation(
         x=0.5, y=0.35,
-        text=f"<span style='font-size:26px; font-weight:bold; color:{color};'>{percentage:.1f}% 달성</span><br><br>" +
-             f"<span style='font-size:15px; color:gray;'>목표: {target_val:,.0f}원</span><br>" +
-             f"<span style='font-size:18px; font-weight:bold;'>실적: {current_val:,.0f}원</span>",
+        text=f"<span style='font-size:26px; font-weight:bold; color:{color};'>{percentage:.1f}% 달성</span><br><br><br>" +
+             f"<span style='font-size:15px; color:gray;'>목표: {target_val:,.0f}원</span><br><br>" +
+             f"<span style='font-size:18px; font-weight:bold; color:{color};'>실적: {current_val:,.0f}원</span>",
         showarrow=False,
         align="center"
     )
@@ -466,22 +466,21 @@ elif st.session_state.page == "achievement":
     
     selected_manager = st.sidebar.selectbox(
         "조회할 담당자 선택", 
-        ["선택하세요", "★ 전체 담당자 한눈에 보기", "🏠 내부 인력 전체보기", "🌐 외부 인력 전체보기"] + all_managers
+        ["전체 담당자 한눈에 보기", "내부 인력 전체보기", "외부 인력 전체보기"] + all_managers,
+        index=0
     )
-    
-    if selected_manager == "선택하세요": st.info("👈 좌측 사이드바에서 조회할 담당자를 선택해 주세요."); st.stop()
     
     st.write(f"### 👤 {selected_manager}님의 {selected_period_label} 달성 현황")
     
-    if selected_manager == "★ 전체 담당자 한눈에 보기":
+    if selected_manager == "전체 담당자 한눈에 보기":
         target_sales = sum(float(targets_data[m][q]["sales"]) for m in all_managers for q in quarters) * 10000
         target_profit = sum(float(targets_data[m][q]["profit"]) for m in all_managers for q in quarters) * 10000
         managers_to_check = all_managers
-    elif selected_manager == "🏠 내부 인력 전체보기":
+    elif selected_manager == "내부 인력 전체보기":
         target_sales = sum(float(targets_data[m][q]["sales"]) for m in internal_managers for q in quarters) * 10000
         target_profit = sum(float(targets_data[m][q]["profit"]) for m in internal_managers for q in quarters) * 10000
         managers_to_check = internal_managers
-    elif selected_manager == "🌐 외부 인력 전체보기":
+    elif selected_manager == "외부 인력 전체보기":
         target_sales = sum(float(targets_data[m][q]["sales"]) for m in external_managers for q in quarters) * 10000
         target_profit = sum(float(targets_data[m][q]["profit"]) for m in external_managers for q in quarters) * 10000
         managers_to_check = external_managers
@@ -528,8 +527,38 @@ elif st.session_state.page == "achievement":
     with c1: st.plotly_chart(draw_gauge(actual_sales, target_sales, "💰 매출 달성 현황", color="#EF553B", bg_color="#FCEAE8"), use_container_width=True)
     with c2: st.plotly_chart(draw_gauge(actual_profit, target_profit, "📉 이익 달성 현황", color="#636EFA", bg_color="#EBEDFE"), use_container_width=True)
     
-    summary_data = {"구분": ["매출", "이익"], "목표 금액": [f"{target_sales:,.0f}원", f"{target_profit:,.0f}원"], "실제 실적": [f"{actual_sales:,.0f}원", f"{actual_profit:,.0f}원"], "달성률": [f"{(actual_sales/target_sales*100):.1f}%" if target_sales > 0 else "-", f"{(actual_profit/target_profit*100):.1f}%" if target_profit > 0 else "-"]}
-    st.table(pd.DataFrame(summary_data))
+    # 요약 데이터 시각화 개선 (HTML/CSS 사용)
+    sales_ach = (actual_sales/target_sales*100) if target_sales > 0 else 0
+    profit_ach = (actual_profit/target_profit*100) if target_profit > 0 else 0
+    
+    st.markdown(f"""
+    <div style="background-color: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e6e9ef; margin-bottom: 20px;">
+        <table style="width:100%; border-collapse: collapse; text-align: center;">
+            <thead>
+                <tr style="border-bottom: 1px solid #dee2e6;">
+                    <th style="padding: 10px; font-size: 16px; color: #666;">구분</th>
+                    <th style="padding: 10px; font-size: 16px; color: #666;">목표 금액</th>
+                    <th style="padding: 10px; font-size: 16px; color: #666;">실제 실적</th>
+                    <th style="padding: 10px; font-size: 16px; color: #666;">달성률</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 15px 10px; font-size: 18px; font-weight: bold;">💰 매출</td>
+                    <td style="padding: 15px 10px; font-size: 17px; color: #666;">{target_sales:,.0f}원</td>
+                    <td style="padding: 15px 10px; font-size: 17px; color: #666;">{actual_sales:,.0f}원</td>
+                    <td style="padding: 15px 10px; font-size: 26px; font-weight: 900; color: #EF553B;">{sales_ach:.1f}%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px 10px; font-size: 18px; font-weight: bold;">📉 이익</td>
+                    <td style="padding: 15px 10px; font-size: 17px; color: #666;">{target_profit:,.0f}원</td>
+                    <td style="padding: 15px 10px; font-size: 17px; color: #666;">{actual_profit:,.0f}원</td>
+                    <td style="padding: 15px 10px; font-size: 26px; font-weight: 900; color: #636EFA;">{profit_ach:.1f}%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    """, unsafe_allow_html=True)
 
     with st.expander(f"📋 {selected_manager}님의 기여 내역 상세 확인", expanded=False):
         tab_s, tab_p = st.tabs(["💰 매출 상세", "📉 이익 상세"])
@@ -573,15 +602,15 @@ else:
         
         selected_option = st.sidebar.selectbox(
             "조회할 담당자 선택", 
-            ["★ 전체 담당자 한눈에 보기", "🏠 내부 인력 전체보기", "🌐 외부 인력 전체보기"] + all_mgrs,
+            ["전체 담당자 한눈에 보기", "내부 인력 전체보기", "외부 인력 전체보기"] + all_mgrs,
             key="dash_mgr_select"
         )
         
-        if selected_option == "★ 전체 담당자 한눈에 보기":
+        if selected_option == "전체 담당자 한눈에 보기":
             selected_managers = all_mgrs
-        elif selected_option == "🏠 내부 인력 전체보기":
+        elif selected_option == "내부 인력 전체보기":
             selected_managers = internal_managers
-        elif selected_option == "🌐 외부 인력 전체보기":
+        elif selected_option == "외부 인력 전체보기":
             selected_managers = external_managers
         else:
             selected_managers = [selected_option]
@@ -613,9 +642,39 @@ else:
             with tab:
                 res_df = calc_consolidated(col_name)
                 sum_df = res_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values('반영실적', ascending=False)
-                if not sum_df.empty: sum_df = pd.concat([sum_df, pd.DataFrame([{'담당자': '★ 전체 합계', '반영실적': sum_df['반영실적'].sum()}])], ignore_index=True)
-                st.write(f"#### 👤 담당자별 합산 실적 요약")
-                st.dataframe(sum_df.style.format({'반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+                
+                st.markdown(f"<h4 style='text-align: center; margin-bottom: 20px;'>👤 담당자별 합산 {label} 요약</h4>", unsafe_allow_html=True)
+                
+                if not sum_df.empty:
+                    total_val = sum_df['반영실적'].sum()
+                    color = "#EF553B" if label == "매출" else "#636EFA"
+                    
+                    rows_html = ""
+                    for _, row in sum_df.iterrows():
+                        rows_html += f"<tr style='border-bottom: 1px solid #eee;'><td style='padding: 12px; text-align: center; font-weight: bold;'>{row['담당자']}</td><td style='padding: 12px; text-align: center; color: {color}; font-weight: 600;'>{row['반영실적']:,.0f}원</td></tr>"
+                    
+                    total_html = f"<tr style='background-color: #f8f9fb; font-weight: 900;'><td style='padding: 15px; text-align: center; border-top: 2px solid #ddd;'>★ 전체 합계</td><td style='padding: 15px; text-align: center; color: {color}; border-top: 2px solid #ddd; font-size: 18px;'>{total_val:,.0f}원</td></tr>"
+                    
+                    table_html = f"""
+                    <div style="border: 1px solid #e6e9ef; border-radius: 10px; overflow: hidden; margin: 0 auto; background-color: white; width: 100%;">
+                        <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+                            <thead>
+                                <tr style="background-color: #f1f3f6; border-bottom: 2px solid #dee2e6;">
+                                    <th style="padding: 12px; text-align: center; color: #555; width: 50%;">담당자</th>
+                                    <th style="padding: 12px; text-align: center; color: #555; width: 50%;">반영 실적 ({label})</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html}
+                                {total_html}
+                            </tbody>
+                        </table>
+                    </div>
+                    """
+                    st.markdown(table_html, unsafe_allow_html=True)
+                    st.write("") 
+                else:
+                    st.info("조회된 실적 데이터가 없습니다.")
                 with st.expander(f"📋 {label} 상세 기여 내역 확인", expanded=False):
                     disp_df = res_df[res_df['반영실적'] > 0].groupby(['Deal명', '담당자']).agg({'원금액': 'first', '역할': lambda x: ', '.join(x), '비중_num': 'sum', '반영실적': 'sum'}).reset_index()
                     disp_df['반영비율'] = disp_df['비중_num'].apply(lambda x: f"{int(x*100)}%")
