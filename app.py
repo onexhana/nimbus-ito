@@ -178,7 +178,7 @@ st.sidebar.write("---")
 
 # 1. 실적 데이터 업로드 (대시보드 페이지 전용 사이드바 메뉴)
 if st.session_state.page == "dashboard":
-    with st.sidebar.expander("📁 실적 데이터 업로드 및 관리", expanded=False):
+    with st.sidebar.expander("📁 엑셀 수동 업로드 및 관리", expanded=False):
         uploaded_file = st.file_uploader("엑셀 파일을 업로드하세요 (.xlsx)", type=["xlsx"], key="dashboard_uploader")
         if uploaded_file:
             df_loaded = pd.read_excel(uploaded_file)
@@ -496,17 +496,27 @@ elif st.session_state.page == "achievement":
         if col in df.columns: df[col] = df[col].astype(str).str.strip()
 
     actual_sales = 0.0; actual_profit = 0.0; 
-    detail_sales_records = []; detail_profit_records = []
     role_configs = [(0.4, 'Deal - 담당자_고객', '고객'), (0.3, 'Deal - 담당자_관리', '관리'), (0.3, 'Deal - 담당자_소싱', '소싱')]
     
+    detail_sales_records = []
+    detail_profit_records = []
+
     for current_mgr in managers_to_check:
         for ratio, mgr_col, role_name in role_configs:
             if mgr_col in df.columns:
                 matched_df = df[df[mgr_col] == current_mgr]
                 for idx, row in matched_df.iterrows():
+                    # 월별 데이터 추출
                     m_vals = {m: clean_currency_val(row[f"Deal - @월별매출 ({m})"]) for m in selected_months if f"Deal - @월별매출 ({m})" in row}
                     p_vals = {m: clean_currency_val(row[f"Deal - @월별이익 ({m})"]) for m in selected_months if f"Deal - @월별이익 ({m})" in row}
-                    row_s = sum(m_vals.values()); row_p = sum(p_vals.values())
+                    
+                    # 실적 계산 로직 수정: 1-12월 전체 조회 시 '연도별' 컬럼 우선 사용
+                    if len(selected_months) == 12:
+                        row_s = clean_currency_val(row.get("Deal - @매출액 (연도별)", sum(m_vals.values())))
+                        row_p = clean_currency_val(row.get("Deal - @이익 (연도별)", sum(p_vals.values())))
+                    else:
+                        row_s = sum(m_vals.values())
+                        row_p = sum(p_vals.values())
                     
                     if row_s > 0 or row_p > 0:
                         actual_sales += row_s * ratio; actual_profit += row_p * ratio
@@ -622,8 +632,21 @@ else:
         profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
         for col in sales_cols + profit_cols:
             if col in df.columns: df[col] = df[col].apply(clean_currency_val)
-        df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
-        df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
+        
+        # 실적 계산 로직 수정: 1-12월 전체 조회 시 '연도별' 컬럼 우선 사용
+        if len(selected_months) == 12:
+            if "Deal - @매출액 (연도별)" in df.columns:
+                df['선택기간_총매출'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
+            else:
+                df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
+                
+            if "Deal - @이익 (연도별)" in df.columns:
+                df['선택기간_총이익'] = df['Deal - @이익 (연도별)'].apply(clean_currency_val)
+            else:
+                df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
+        else:
+            df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
+            df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
 
         def calc_consolidated(target_col):
             results = []
