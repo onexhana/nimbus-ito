@@ -173,6 +173,8 @@ if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
 if st.sidebar.button("📈 목표 달성률 확인하기", use_container_width=True):
     st.session_state.page = "achievement"
+if st.sidebar.button("📊 매출 순위 확인", use_container_width=True):
+    st.session_state.page = "rankings"
 
 st.sidebar.write("---")
 
@@ -510,10 +512,10 @@ elif st.session_state.page == "achievement":
                     m_vals = {m: clean_currency_val(row[f"Deal - @월별매출 ({m})"]) for m in selected_months if f"Deal - @월별매출 ({m})" in row}
                     p_vals = {m: clean_currency_val(row[f"Deal - @월별이익 ({m})"]) for m in selected_months if f"Deal - @월별이익 ({m})" in row}
                     
-                    # 실적 계산 로직 수정: 1-12월 전체 조회 시 '연도별' 컬럼 우선 사용
-                    if len(selected_months) == 12:
-                        row_s = clean_currency_val(row.get("Deal - @매출액 (연도별)", sum(m_vals.values())))
-                        row_p = clean_currency_val(row.get("Deal - @이익 (연도별)", sum(p_vals.values())))
+                    # 실적 계산 로직 수정: 1-12월 전체 조회 시 무조건 '연도별' 컬럼 값을 그대로 가져옴
+                    if len(selected_months) == 12 and "Deal - @매출액 (연도별)" in df.columns and "Deal - @이익 (연도별)" in df.columns:
+                        row_s = clean_currency_val(row.get("Deal - @매출액 (연도별)"))
+                        row_p = clean_currency_val(row.get("Deal - @이익 (연도별)"))
                     else:
                         row_s = sum(m_vals.values())
                         row_p = sum(p_vals.values())
@@ -593,7 +595,83 @@ elif st.session_state.page == "achievement":
             else:
                 st.info("이익 내역이 없습니다.")
 
-# 4. 실적 대시보드
+# 4. 매출 순위 확인
+elif st.session_state.page == "rankings":
+    st.title("📊 매출 순위 확인")
+    df = load_dashboard_data()
+    if df is None:
+        st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
+        st.stop()
+
+    st.sidebar.header("🔍 순위 조회 조건")
+    rank_type = st.sidebar.radio("순위 기준 선택", ["고객사별 매출 순위", "엔드클라이언트별 매출 순위"])
+    period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-12)", value="1-12", key="rank_period_input")
+    selected_months, _, selected_period_label = parse_period_input(period_input)
+
+    # 분석 대상 컬럼 설정
+    target_col = "Deal - 고객사" if "고객사" in rank_type else "Deal - 엔드 클라이언트"
+    
+    if target_col not in df.columns:
+        st.error(f"엑셀 파일에 '{target_col}' 컬럼이 없습니다. 확인해 주세요.")
+        st.stop()
+
+    # 실적 데이터 정제 및 합산
+    sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
+    for col in sales_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(clean_currency_val)
+    
+    # 연도별/월별 합산 로직 적용
+    if len(selected_months) == 12 and "Deal - @매출액 (연도별)" in df.columns:
+        df['analysis_sales'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
+    else:
+        df['analysis_sales'] = df[sales_cols].sum(axis=1)
+
+    # 그룹화 및 정렬
+    rank_df = df.groupby(target_col)['analysis_sales'].sum().reset_index()
+    rank_df = rank_df[rank_df['analysis_sales'] > 0] # 0원 제외
+    rank_df = rank_df.sort_values('analysis_sales', ascending=False).reset_index(drop=True)
+    rank_df.index = rank_df.index + 1 # 순위 1부터 시작
+
+    if rank_df.empty:
+        st.info("조회된 매출 데이터가 없습니다.")
+    else:
+        st.subheader(f"🏆 {rank_type} (Top 5)")
+        
+        # 상위 5위 추출
+        top_5 = rank_df.head(5).copy()
+        
+        # 세로 막대 그래프 시각화 (Plotly)
+        fig = px.bar(
+            top_5, 
+            x=target_col, 
+            y='analysis_sales',
+            text=top_5['analysis_sales'].apply(lambda x: f"{x:,.0f}원"),
+            labels={target_col: target_col.replace("Deal - ", ""), 'analysis_sales': '매출액'},
+            color_discrete_sequence=['#EF553B']
+        )
+        fig.update_traces(textposition='outside')
+        fig.update_layout(
+            xaxis_title="",
+            yaxis_title="매출액 (원)",
+            height=500,
+            margin=dict(t=50, b=50)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # 전체 리스트 (표)
+        st.write("---")
+        st.subheader(f"📋 {rank_type} 전체 내역")
+        
+        # 데이터프레임 포맷팅
+        display_rank_df = rank_df.copy()
+        display_rank_df.columns = ['항목', '총 매출액']
+        st.dataframe(
+            display_rank_df.style.format({'총 매출액': '{:,.0f}원'}),
+            use_container_width=True
+        )
+
+# 5. 실적 대시보드
 else:
     st.title("📊 Deal-ito 통합 실적/이익 대시보드")
     st.markdown("좌측 사이드바에서 엑셀 파일을 업로드하면 실적을 자동 계산합니다.")
@@ -633,17 +711,10 @@ else:
         for col in sales_cols + profit_cols:
             if col in df.columns: df[col] = df[col].apply(clean_currency_val)
         
-        # 실적 계산 로직 수정: 1-12월 전체 조회 시 '연도별' 컬럼 우선 사용
-        if len(selected_months) == 12:
-            if "Deal - @매출액 (연도별)" in df.columns:
-                df['선택기간_총매출'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
-            else:
-                df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
-                
-            if "Deal - @이익 (연도별)" in df.columns:
-                df['선택기간_총이익'] = df['Deal - @이익 (연도별)'].apply(clean_currency_val)
-            else:
-                df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
+        # 실적 계산 로직 수정: 1-12월 전체 조회 시 무조건 '연도별' 컬럼 값을 그대로 사용
+        if len(selected_months) == 12 and "Deal - @매출액 (연도별)" in df.columns and "Deal - @이익 (연도별)" in df.columns:
+            df['선택기간_총매출'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
+            df['선택기간_총이익'] = df['Deal - @이익 (연도별)'].apply(clean_currency_val)
         else:
             df['선택기간_총매출'] = df[sales_cols].sum(axis=1)
             df['선택기간_총이익'] = df[profit_cols].sum(axis=1)
