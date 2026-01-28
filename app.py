@@ -159,6 +159,21 @@ def draw_gauge(current_val, target_val, title, color="#636EFA", bg_color="#F0F2F
 # 페이지 설정
 st.set_page_config(page_title="Deal-ito 통합 실적 대시보드", layout="wide")
 
+# 사이드바 버튼 줄바꿈 허용을 위한 커스텀 CSS
+st.markdown("""
+    <style>
+    div[data-testid="stSidebar"] button {
+        white-space: normal !important;
+        height: auto !important;
+        min-height: 45px !important;
+        line-height: 1.3 !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+        display: block !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # 세션 상태 초기화
 if 'page' not in st.session_state:
     st.session_state.page = "dashboard"
@@ -173,9 +188,9 @@ if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
 if st.sidebar.button("📈 목표 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
-if st.sidebar.button("🏢 고객사별 매출/이익 순위", use_container_width=True):
+if st.sidebar.button("🏢 고객사별\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
-if st.sidebar.button("👤 엔드클라이언트 매출/이익 순위", use_container_width=True):
+if st.sidebar.button("👤 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
@@ -600,7 +615,7 @@ elif st.session_state.page == "achievement":
 # 4. 고객사/엔드클라이언트 순위 조회 공통 로직
 elif st.session_state.page in ["rank_customer", "rank_endclient"]:
     is_customer = st.session_state.page == "rank_customer"
-    title = "🏢 고객사별 매출/이익 순위" if is_customer else "👤 엔드클라이언트 매출/이익 순위"
+    title = "🏢 고객사별 매출/이익 순위 조회" if is_customer else "👤 엔드클라이언트 매출/이익 순위 조회"
     st.title(title)
     
     df = load_dashboard_data()
