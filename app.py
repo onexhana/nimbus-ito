@@ -668,13 +668,13 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
             color_discrete_sequence=[color]
         )
         
-        # 호버 효과 설정 (말풍선 박스 제거, 숫자만 강조)
+        # 호버 효과 설정 (막대 위 중앙에 숫자 표시)
         fig.update_traces(
-            hovertemplate="<b><span style='font-size:24px; color:black;'>%{y:,.0f}원</span></b><extra></extra>",
+            hovertemplate="<b>%{y:,.0f}원</b><extra></extra>",
             hoverlabel=dict(
-                bgcolor="rgba(0,0,0,0)", # 배경 투명
-                bordercolor="rgba(0,0,0,0)", # 테두리 투명
-                font=dict(family="Malgun Gothic", color="black")
+                bgcolor="white", 
+                bordercolor="white", 
+                font=dict(size=22, family="Malgun Gothic", color="black")
             )
         )
         
@@ -682,14 +682,16 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
             xaxis_title="",
             yaxis_title=f"{label} (원)",
             height=500,
-            # X축 및 Y축 글씨 크기 키움
+            hovermode='x', # 마우스 수직 라인 기준 막대 상단에 호버 표시
             xaxis=dict(
                 tickfont=dict(size=16, family="Malgun Gothic", color="black")
             ),
             yaxis=dict(
                 tickfont=dict(size=14),
-                tickformat=",d" # 천 단위 콤마 추가 및 Billion(B) 표기 방지
-            )
+                tickformat=",d",
+                range=[0, plot_df['analysis_val'].max() * 1.2] # 상단 여유 공간 충분히 확보
+            ),
+            margin=dict(t=50, b=50) 
         )
         st.plotly_chart(fig, use_container_width=True)
 
