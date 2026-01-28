@@ -171,10 +171,12 @@ if st.sidebar.button("📊 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
 if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
-if st.sidebar.button("📈 목표 달성률 확인하기", use_container_width=True):
+if st.sidebar.button("📈 목표 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
-if st.sidebar.button("📊 매출 순위 확인", use_container_width=True):
-    st.session_state.page = "rankings"
+if st.sidebar.button("🏢 고객사별 매출/이익 순위", use_container_width=True):
+    st.session_state.page = "rank_customer"
+if st.sidebar.button("👤 엔드클라이언트 매출/이익 순위", use_container_width=True):
+    st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
 
@@ -595,81 +597,107 @@ elif st.session_state.page == "achievement":
             else:
                 st.info("이익 내역이 없습니다.")
 
-# 4. 매출 순위 확인
-elif st.session_state.page == "rankings":
-    st.title("📊 매출 순위 확인")
+# 4. 고객사/엔드클라이언트 순위 조회 공통 로직
+elif st.session_state.page in ["rank_customer", "rank_endclient"]:
+    is_customer = st.session_state.page == "rank_customer"
+    title = "🏢 고객사별 매출/이익 순위" if is_customer else "👤 엔드클라이언트 매출/이익 순위"
+    st.title(title)
+    
     df = load_dashboard_data()
     if df is None:
         st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
         st.stop()
 
     st.sidebar.header("🔍 순위 조회 조건")
-    rank_type = st.sidebar.radio("순위 기준 선택", ["고객사별 매출 순위", "엔드클라이언트별 매출 순위"])
-    period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-12)", value="1-12", key="rank_period_input")
+    criteria = st.sidebar.radio("분석 기준 선택", ["매출 기준 순위", "이익 기준 순위"])
+    period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-12)", value="1-12", key=f"rank_period_{st.session_state.page}")
     selected_months, _, selected_period_label = parse_period_input(period_input)
 
     # 분석 대상 컬럼 설정
-    target_col = "Deal - 고객사" if "고객사" in rank_type else "Deal - 엔드 클라이언트"
-    
+    target_col = "Deal - 고객사" if is_customer else "Deal - 엔드 클라이언트"
     if target_col not in df.columns:
-        st.error(f"엑셀 파일에 '{target_col}' 컬럼이 없습니다. 확인해 주세요.")
+        st.error(f"엑셀 파일에 '{target_col}' 컬럼이 없습니다.")
         st.stop()
 
-    # 실적 데이터 정제 및 합산
-    sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
-    for col in sales_cols:
+    # 실적 데이터 정제 및 합산 로직
+    is_sales = "매출" in criteria
+    prefix = "@월별매출" if is_sales else "@월별이익"
+    cols = [f"Deal - {prefix} ({m})" for m in selected_months]
+    
+    for col in cols:
         if col in df.columns:
             df[col] = df[col].apply(clean_currency_val)
     
-    # 연도별/월별 합산 로직 적용
-    if len(selected_months) == 12 and "Deal - @매출액 (연도별)" in df.columns:
-        df['analysis_sales'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
+    # 연도별 컬럼 우선 사용
+    year_col = "Deal - @매출액 (연도별)" if is_sales else "Deal - @이익 (연도별)"
+    if len(selected_months) == 12 and year_col in df.columns:
+        df['analysis_val'] = df[year_col].apply(clean_currency_val)
     else:
-        df['analysis_sales'] = df[sales_cols].sum(axis=1)
+        df['analysis_val'] = df[cols].sum(axis=1)
 
     # 그룹화 및 정렬
-    rank_df = df.groupby(target_col)['analysis_sales'].sum().reset_index()
-    rank_df = rank_df[rank_df['analysis_sales'] > 0] # 0원 제외
-    rank_df = rank_df.sort_values('analysis_sales', ascending=False).reset_index(drop=True)
-    rank_df.index = rank_df.index + 1 # 순위 1부터 시작
+    rank_df = df.groupby(target_col)['analysis_val'].sum().reset_index()
+    rank_df = rank_df[rank_df['analysis_val'] != 0] # 0원 제외 (마이너스 이익 포함)
+    rank_df = rank_df.sort_values('analysis_val', ascending=False).reset_index(drop=True)
+    rank_df.index = rank_df.index + 1
 
     if rank_df.empty:
-        st.info("조회된 매출 데이터가 없습니다.")
+        st.info("조회된 데이터가 없습니다.")
     else:
-        st.subheader(f"🏆 {rank_type} (Top 5)")
+        label = "매출액" if is_sales else "이익액"
+        color = "#EF553B" if is_sales else "#636EFA"
+        st.subheader(f"🏆 {criteria} (Top 5 + 기타)")
         
-        # 상위 5위 추출
-        top_5 = rank_df.head(5).copy()
+        # 상위 5위와 나머지(기타) 데이터 처리
+        if len(rank_df) > 5:
+            top_5 = rank_df.head(5).copy()
+            others_sum = rank_df.iloc[5:]['analysis_val'].sum()
+            
+            # 기타 항목 추가
+            others_row = pd.DataFrame({target_col: ['기타'], 'analysis_val': [others_sum]})
+            plot_df = pd.concat([top_5, others_row], ignore_index=True)
+        else:
+            plot_df = rank_df.copy()
         
         # 세로 막대 그래프 시각화 (Plotly)
         fig = px.bar(
-            top_5, 
+            plot_df, 
             x=target_col, 
-            y='analysis_sales',
-            text=top_5['analysis_sales'].apply(lambda x: f"{x:,.0f}원"),
-            labels={target_col: target_col.replace("Deal - ", ""), 'analysis_sales': '매출액'},
-            color_discrete_sequence=['#EF553B']
+            y='analysis_val',
+            labels={target_col: target_col.replace("Deal - ", ""), 'analysis_val': label},
+            color_discrete_sequence=[color]
         )
-        fig.update_traces(textposition='outside')
+        
+        # 호버 효과 설정 (말풍선 박스 제거, 숫자만 강조)
+        fig.update_traces(
+            hovertemplate="<b><span style='font-size:24px; color:black;'>%{y:,.0f}원</span></b><extra></extra>",
+            hoverlabel=dict(
+                bgcolor="rgba(0,0,0,0)", # 배경 투명
+                bordercolor="rgba(0,0,0,0)", # 테두리 투명
+                font=dict(family="Malgun Gothic", color="black")
+            )
+        )
+        
         fig.update_layout(
             xaxis_title="",
-            yaxis_title="매출액 (원)",
+            yaxis_title=f"{label} (원)",
             height=500,
-            margin=dict(t=50, b=50)
+            # X축 및 Y축 글씨 크기 키움
+            xaxis=dict(
+                tickfont=dict(size=16, family="Malgun Gothic", color="black")
+            ),
+            yaxis=dict(
+                tickfont=dict(size=14),
+                tickformat=",d" # 천 단위 콤마 추가 및 Billion(B) 표기 방지
+            )
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # 전체 리스트 (표)
         st.write("---")
-        st.subheader(f"📋 {rank_type} 전체 내역")
-        
-        # 데이터프레임 포맷팅
+        st.subheader(f"📋 {criteria} 전체 내역")
         display_rank_df = rank_df.copy()
-        display_rank_df.columns = ['항목', '총 매출액']
-        st.dataframe(
-            display_rank_df.style.format({'총 매출액': '{:,.0f}원'}),
-            use_container_width=True
-        )
+        display_rank_df.columns = ['항목', f'총 {label}']
+        st.dataframe(display_rank_df.style.format({f'총 {label}': '{:,.0f}원'}), use_container_width=True)
 
 # 5. 실적 대시보드
 else:
