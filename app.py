@@ -24,24 +24,6 @@ def load_dashboard_data():
             return None
     return None
 
-def save_dashboard_data(df):
-    st.session_state.dashboard_df = df
-    df.to_pickle(DASHBOARD_CACHE_FILE)
-    # 데이터 저장 시 담당자 명단 즉시 동기화
-    targets_data = load_targets()
-    excel_managers = sorted(list(set(
-        df['Deal - 담당자_고객'].dropna().unique().tolist() + 
-        df['Deal - 담당자_관리'].dropna().unique().tolist() + 
-        df['Deal - 담당자_소싱'].dropna().unique().tolist()
-    )))
-    updated = False
-    for manager in excel_managers:
-        if manager not in targets_data:
-            targets_data[manager] = {f"q{i}": {"mm": 0.0, "sales": 0.0, "profit": 0.0} for i in range(1, 5)}
-            updated = True
-    if updated:
-        save_targets(targets_data)
-
 def delete_dashboard_data():
     if 'dashboard_df' in st.session_state:
         del st.session_state.dashboard_df
@@ -49,36 +31,117 @@ def delete_dashboard_data():
         os.remove(DASHBOARD_CACHE_FILE)
 
 def load_targets():
+    """데이터 구조 마이그레이션을 포함한 통합 데이터 로드"""
     if os.path.exists(TARGETS_FILE):
-        with open(TARGETS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(TARGETS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # 구조 마이그레이션 확인
+            if "personnel" not in data or "targets" not in data:
+                new_data = {"personnel": {}, "targets": {"2026": {}}}
+                
+                # 기존 데이터가 평면 구조인 경우 (담당자명: 데이터)
+                for key, value in data.items():
+                    # 이미 연도별 구조인 경우 처리
+                    if str(key).isdigit():
+                        new_data["targets"][str(key)] = value
+                        # 연도별 데이터 내부에 type 정보가 있으면 추출
+                        for mgr, mgr_data in value.items():
+                            if isinstance(mgr_data, dict) and "type" in mgr_data:
+                                new_data["personnel"][mgr] = {"type": mgr_data["type"]}
+                    else:
+                        # 담당자명: 데이터 구조인 경우
+                        if isinstance(value, dict):
+                            # 인력 분류 정보 추출
+                            if "type" in value:
+                                new_data["personnel"][key] = {"type": value["type"]}
+                            
+                            # 목표 정보 추출 (q1~q4가 있으면 목표 데이터로 간주)
+                            if any(f"q{i}" in value for i in range(1, 5)):
+                                # 2026년으로 할당
+                                target_vals = {f"q{i}": value.get(f"q{i}", {"mm": 0, "sales": 0, "profit": 0}) for i in range(1, 5)}
+                                new_data["targets"]["2026"][key] = target_vals
+                
+                data = new_data
+                save_targets(data) # 마이그레이션 후 저장
+            return data
+        except:
+            return {"personnel": {}, "targets": {"2026": {}}}
+    return {"personnel": {}, "targets": {"2026": {}}}
 
-def save_targets(targets):
+def save_targets(data):
     with open(TARGETS_FILE, "w", encoding="utf-8") as f:
-        json.dump(targets, f, ensure_ascii=False, indent=4)
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 엑셀 템플릿 생성 함수
-def create_excel_template(targets_data):
+def get_personnel_data():
+    all_data = load_targets()
+    return all_data.get("personnel", {})
+
+def save_personnel_data(personnel_data):
+    all_data = load_targets()
+    all_data["personnel"] = personnel_data
+    save_targets(all_data)
+
+def get_targets_by_year(year):
+    all_data = load_targets()
+    return all_data.get("targets", {}).get(str(year), {})
+
+def save_targets_by_year(year, year_targets):
+    all_data = load_targets()
+    if "targets" not in all_data:
+        all_data["targets"] = {}
+    all_data["targets"][str(year)] = year_targets
+    save_targets(all_data)
+
+def save_dashboard_data(df):
+    st.session_state.dashboard_df = df
+    df.to_pickle(DASHBOARD_CACHE_FILE)
+    # 데이터 저장 시 담당자 명단 즉시 동기화
+    all_data = load_targets()
+    personnel = all_data["personnel"]
+    
+    excel_managers = sorted(list(set(
+        df['Deal - 담당자_고객'].dropna().unique().tolist() + 
+        df['Deal - 담당자_관리'].dropna().unique().tolist() + 
+        df['Deal - 담당자_소싱'].dropna().unique().tolist()
+    )))
+    
+    updated = False
+    for manager in excel_managers:
+        if manager not in personnel:
+            personnel[manager] = {"type": "내부"}
+            updated = True
+    
+    if updated:
+        save_personnel_data(personnel)
+
+# 엑셀 템플릿 생성 함수 (특정 연도 기준)
+def create_excel_template(targets_data, selected_year=2026):
     output = io.BytesIO()
     rows = []
+    # targets_data는 특정 연도의 데이터임
     managers = sorted(targets_data.keys()) if targets_data else ["고봉수", "김길래", "박승수", "손병희", "이민지"]
     for mgr in managers:
         m_data = targets_data.get(mgr, {f"q{i}": {"mm": 0, "sales": 0, "profit": 0} for i in range(1, 5)})
+        # mm, sales, profit 이외의 필드(type 등)는 건너뜀
+        if not isinstance(m_data, dict) or "q1" not in m_data:
+            continue
+            
         for category, label in [("mm", "MM"), ("sales", "매출"), ("profit", "매출이익")]:
             row = {
                 "성명": mgr if label == "MM" else "",
                 "내용": label,
-                "년 목표": sum(m_data[f"q{i}"][category] for i in range(1, 5)),
-                "1/4분기 목표": m_data["q1"][category],
-                "2/4분기 목표": m_data["q2"][category],
-                "3/4분기 목표": m_data["q3"][category],
-                "4/4분기 목표": m_data["q4"][category]
+                "년 목표": sum(m_data.get(f"q{i}", {}).get(category, 0) for i in range(1, 5)),
+                "1/4분기 목표": m_data.get("q1", {}).get(category, 0),
+                "2/4분기 목표": m_data.get("q2", {}).get(category, 0),
+                "3/4분기 목표": m_data.get("q3", {}).get(category, 0),
+                "4/4분기 목표": m_data.get("q4", {}).get(category, 0)
             }
             rows.append(row)
     df_template = pd.DataFrame(rows)
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_template.to_excel(writer, index=False, sheet_name='목표설정')
+        df_template.to_excel(writer, index=False, sheet_name=f'{selected_year}년 목표설정')
     return output.getvalue()
 
 def clean_currency_val(val):
@@ -234,19 +297,19 @@ if st.session_state.page == "personnel":
     st.title("👥 인력 명단 관리")
     st.markdown("담당자를 '내부' 또는 '외부' 인력으로 분류합니다. 분류된 정보는 목표 설정 및 실적 계산의 기준이 됩니다.")
     
-    targets_data = load_targets()
+    personnel_data = get_personnel_data()
     
-    if not targets_data:
+    if not personnel_data:
         st.warning("등록된 담당자가 없습니다. '실적 대시보드'에서 엑셀을 업로드하거나 '목표 설정하기'에서 담당자를 추가해 주세요.")
     else:
         # 데이터 구조 보정 (type 필드 없는 경우 기본값 '내부' 부여)
         updated = False
-        for mgr in targets_data:
-            if "type" not in targets_data[mgr]:
-                targets_data[mgr]["type"] = "내부"
+        for mgr in personnel_data:
+            if not isinstance(personnel_data[mgr], dict) or "type" not in personnel_data[mgr]:
+                personnel_data[mgr] = {"type": "내부"}
                 updated = True
         if updated:
-            save_targets(targets_data)
+            save_personnel_data(personnel_data)
 
         with st.form("personnel_form"):
             st.subheader("📋 담당자 분류 설정")
@@ -258,11 +321,11 @@ if st.session_state.page == "personnel":
             st.write("---")
 
             new_classifications = {}
-            for mgr in sorted(targets_data.keys()):
+            for mgr in sorted(personnel_data.keys()):
                 c1, c2, c3 = st.columns([2, 3, 2])
                 c1.write(f"**{mgr}**")
                 
-                current_type = targets_data[mgr].get("type", "내부")
+                current_type = personnel_data[mgr].get("type", "내부")
                 selected_type = c2.radio(
                     f"분류_{mgr}", 
                     options=["내부", "외부"], 
@@ -280,8 +343,8 @@ if st.session_state.page == "personnel":
             
             if save_btn:
                 for mgr, p_type in new_classifications.items():
-                    targets_data[mgr]["type"] = p_type
-                save_targets(targets_data)
+                    personnel_data[mgr]["type"] = p_type
+                save_personnel_data(personnel_data)
                 st.success("인력 분류 정보가 저장되었습니다!")
                 time.sleep(1)
                 st.rerun()
@@ -289,22 +352,37 @@ if st.session_state.page == "personnel":
 # 2. 목표 설정
 elif st.session_state.page == "targets":
     st.title("🎯 담당자별 목표 설정")
-    st.markdown("분기별 목표를 입력하세요. (단위: 만원)")
     
-    targets_data = load_targets()
-    # 인력 데이터 구조 보정
-    for mgr in targets_data:
-        if "type" not in targets_data[mgr]:
-            targets_data[mgr]["type"] = "내부"
+    # 연도 선택 필터 추가
+    all_data = load_targets()
+    available_years = sorted(list(all_data.get("targets", {}).keys()), reverse=True)
+    if not available_years: available_years = ["2026"]
+    
+    col_year, col_empty = st.columns([2, 5])
+    selected_year = col_year.selectbox("📅 설정 연도 선택", options=available_years + ["직접 입력"], index=0)
+    if selected_year == "직접 입력":
+        selected_year = col_year.text_input("연도 입력 (예: 2027)", value="2027")
+    
+    st.markdown(f"**{selected_year}년** 분기별 목표를 입력하세요. (단위: 만원)")
+    
+    targets_data = get_targets_by_year(selected_year)
+    personnel_data = get_personnel_data()
+    
+    # 인력 명단에 있는 사람들을 targets_data에 동기화
+    for mgr in personnel_data:
+        if mgr not in targets_data:
+            targets_data[mgr] = {f"q{i}": {"mm": 0.0, "sales": 0.0, "profit": 0.0} for i in range(1, 5)}
 
     all_mgrs = sorted(targets_data.keys())
+    internal_mgrs = [m for m in all_mgrs if personnel_data.get(m, {}).get("type") == "내부"]
+    external_mgrs = [m for m in all_mgrs if personnel_data.get(m, {}).get("type") == "외부"]
     
     if all_mgrs:
         team_total_mm = sum(float(targets_data[m][q]["mm"]) for m in all_mgrs for q in ["q1", "q2", "q3", "q4"])
         team_total_sales = sum(float(targets_data[m][q]["sales"]) for m in all_mgrs for q in ["q1", "q2", "q3", "q4"])
         team_total_profit = sum(float(targets_data[m][q]["profit"]) for m in all_mgrs for q in ["q1", "q2", "q3", "q4"])
         
-        with st.expander("📊 우리 팀 전체 연간 목표 합계 확인", expanded=False):
+        with st.expander(f"📊 {selected_year}년 우리 팀 전체 연간 목표 합계 확인", expanded=False):
             tc1, tc2, tc3 = st.columns(3)
             tc1.metric("팀 전체 총 MM", f"{team_total_mm:.1f}")
             tc2.metric("팀 전체 총 매출", f"{team_total_sales:,.0f}만원")
@@ -330,9 +408,7 @@ elif st.session_state.page == "targets":
     select_external = col_sel3.checkbox("외부 인력 전체 선택", key="select_external_key", on_change=on_select_external_change)
     
     selected_m_list = []
-    internal_mgrs = [m for m in all_mgrs if targets_data[m].get("type") == "내부"]
-    external_mgrs = [m for m in all_mgrs if targets_data[m].get("type") == "외부"]
-
+    
     if internal_mgrs:
         st.markdown("#### 🏠 내부 인력")
         mgr_cols = st.columns(5)
@@ -352,7 +428,7 @@ elif st.session_state.page == "targets":
     
     if selected_m_list:
         st.write("---")
-        st.write(f"### 📋 선택된 담당자 목표 현황 요약")
+        st.write(f"### 📋 선택된 담당자 목표 현황 요약 ({selected_year}년)")
         
         total_sum_mm = sum(float(targets_data[m][q]["mm"]) for m in selected_m_list for q in ["q1", "q2", "q3", "q4"])
         total_sum_sales = sum(float(targets_data[m][q]["sales"]) for m in selected_m_list for q in ["q1", "q2", "q3", "q4"])
@@ -404,13 +480,16 @@ elif st.session_state.page == "targets":
                 total_sales = sum(q_val["sales"] for q_val in updated_m_data.values())
                 total_profit = sum(q_val["profit"] for q_val in updated_m_data.values())
                 c1, c2, c3 = st.columns(3); c1.metric("연간 총 MM", f"{total_mm:.2f}"); c2.metric("연간 총 매출", f"{total_sales:,.0f}만원"); c3.metric("연간 총 이익", f"{total_profit:,.0f}만원")
-                if st.button(f"💾 {selected_m}님 목표 저장", use_container_width=True, type="primary"):
+                if st.button(f"💾 {selected_m}님 {selected_year}년 목표 저장", use_container_width=True, type="primary"):
                     targets_data[selected_m].update(updated_m_data)
-                    save_targets(targets_data); st.success("저장되었습니다!"); st.rerun()
+                    save_targets_by_year(selected_year, targets_data)
+                    st.success(f"{selected_year}년 목표가 저장되었습니다!")
+                    time.sleep(1)
+                    st.rerun()
 
     with st.sidebar.expander("📂 목표 데이터 일괄 관리", expanded=False):
-        template_excel = create_excel_template(targets_data)
-        st.download_button("📥 양식 다운로드", data=template_excel, file_name="target_template.xlsx", use_container_width=True)
+        template_excel = create_excel_template(targets_data, selected_year=selected_year)
+        st.download_button(f"📥 {selected_year}년 양식 다운로드", data=template_excel, file_name=f"target_template_{selected_year}.xlsx", use_container_width=True)
         uploaded_target_file = st.file_uploader("엑셀 업로드 (사업목표 양식)", type=["xlsx"], key="target_excel_uploader")
         
         if uploaded_target_file:
@@ -428,6 +507,7 @@ elif st.session_state.page == "targets":
                         st.stop()
 
                     new_targets = targets_data.copy()
+                    personnel_data = get_personnel_data()
                     current_type = "내부" # 기본값
                     
                     # 데이터 행 순회
@@ -450,7 +530,11 @@ elif st.session_state.page == "targets":
                         if mgr_name not in new_targets:
                             new_targets[mgr_name] = {f"q{i}": {"mm": 0, "sales": 0, "profit": 0} for i in range(1, 5)}
                         
-                        new_targets[mgr_name]["type"] = current_type
+                        # 인력 분류 정보 업데이트
+                        if mgr_name not in personnel_data:
+                            personnel_data[mgr_name] = {"type": current_type}
+                        else:
+                            personnel_data[mgr_name]["type"] = current_type
                         
                         for _, row in mgr_rows.iterrows():
                             content = str(row['내용']).strip()
@@ -461,9 +545,12 @@ elif st.session_state.page == "targets":
                                     val = row[f'{i}/4분기 목표']
                                     new_targets[mgr_name][f"q{i}"][cat] = float(val) if pd.notna(val) and str(val).strip() != "-" else 0.0
                     
-                    save_targets(new_targets)
+                    # 데이터 저장
+                    save_personnel_data(personnel_data)
+                    save_targets_by_year(selected_year, new_targets)
+                    
                     status.update(label="✅ 반영 완료!", state="complete", expanded=False)
-                    st.success(f"엑셀 데이터를 기반으로 인력 분류 및 목표치가 업데이트되었습니다.")
+                    st.success(f"{selected_year}년 엑셀 데이터 및 인력 분류 정보가 업데이트되었습니다.")
                     time.sleep(1)
                     st.rerun()
                 except Exception as e:
@@ -471,14 +558,14 @@ elif st.session_state.page == "targets":
                     st.error(f"엑셀 처리 중 오류가 발생했습니다: {e}")
         
         st.write("---")
-        if st.button("🚨 모든 데이터 초기화", use_container_width=True):
+        if st.button(f"🚨 {selected_year}년 목표 데이터 초기화", use_container_width=True):
             st.session_state.show_reset_confirm = True
         
         if st.session_state.get('show_reset_confirm', False):
-            st.warning("⚠️ 모든 목표 데이터를 삭제하시겠습니까?")
+            st.warning(f"⚠️ {selected_year}년의 모든 목표 데이터를 삭제하시겠습니까?")
             c1, c2 = st.columns(2)
             if c1.button("✅ 예", use_container_width=True):
-                save_targets({})
+                save_targets_by_year(selected_year, {})
                 st.session_state.show_reset_confirm = False
                 st.rerun()
             if c2.button("❌ 아니오", use_container_width=True):
@@ -489,18 +576,39 @@ elif st.session_state.page == "targets":
 elif st.session_state.page == "achievement":
     st.title("📈 구성원별 달성률 조회")
     df = load_dashboard_data()
-    targets_data = load_targets()
     
     if df is None: st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요."); st.stop()
-    if not targets_data: st.warning("🎯 목표 설정하기에서 먼저 목표를 설정해 주세요."); st.stop()
 
     st.sidebar.header("🔍 달성률 조회 조건")
+    
+    # 연도 선택 필터 (대시보드와 동일한 로직 적용)
+    year_cols = [col for col in df.columns if '연도' in col or '년도' in col]
+    if year_cols:
+        year_col = year_cols[0]
+        years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
+        selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=years, index=0)
+        df = df[df[year_col] == selected_year]
+    else:
+        # 연도 컬럼이 없는 경우 기본적으로 목표 데이터의 최신 연도 사용
+        all_data = load_targets()
+        available_years = sorted(list(all_data.get("targets", {}).keys()), reverse=True)
+        if not available_years: available_years = ["2026"]
+        selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=available_years, index=0)
+
+    # 해당 연도의 목표 및 인력 정보 로드
+    targets_data = get_targets_by_year(selected_year)
+    personnel_data = get_personnel_data()
+    
+    if not targets_data:
+        st.warning(f"🎯 {selected_year}년에 설정된 목표가 없습니다. '목표 설정하기'에서 먼저 목표를 설정해 주세요.")
+        st.stop()
+
     period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-3, 1-9)", value="1-12")
     selected_months, quarters, selected_period_label = parse_period_input(period_input)
     
-    all_managers = sorted(targets_data.keys())
-    internal_managers = [m for m in all_managers if targets_data[m].get("type") == "내부"]
-    external_managers = [m for m in all_managers if targets_data[m].get("type") == "외부"]
+    all_managers = sorted(list(set(list(targets_data.keys()) + list(personnel_data.keys()))))
+    internal_managers = [m for m in all_managers if personnel_data.get(m, {}).get("type") == "내부"]
+    external_managers = [m for m in all_managers if personnel_data.get(m, {}).get("type") == "외부"]
     
     selected_manager = st.sidebar.selectbox(
         "조회할 담당자 선택", 
@@ -508,23 +616,28 @@ elif st.session_state.page == "achievement":
         index=0
     )
     
-    st.write(f"### 👤 {selected_manager}님의 {selected_period_label} 달성 현황")
+    st.write(f"### 👤 {selected_manager}님의 {selected_year}년 {selected_period_label} 달성 현황")
     
+    # 타겟 데이터 로드 시 mgr_data에 q1~q4가 있는지 확인하는 안전한 함수
+    def get_safe_target(mgr, q_list, category):
+        m_data = targets_data.get(mgr, {})
+        return sum(float(m_data.get(q, {}).get(category, 0)) for q in q_list)
+
     if selected_manager == "전체 담당자 한눈에 보기":
-        target_sales = sum(float(targets_data[m][q]["sales"]) for m in all_managers for q in quarters) * 10000
-        target_profit = sum(float(targets_data[m][q]["profit"]) for m in all_managers for q in quarters) * 10000
+        target_sales = sum(get_safe_target(m, quarters, "sales") for m in all_managers) * 10000
+        target_profit = sum(get_safe_target(m, quarters, "profit") for m in all_managers) * 10000
         managers_to_check = all_managers
     elif selected_manager == "내부 인력 전체보기":
-        target_sales = sum(float(targets_data[m][q]["sales"]) for m in internal_managers for q in quarters) * 10000
-        target_profit = sum(float(targets_data[m][q]["profit"]) for m in internal_managers for q in quarters) * 10000
+        target_sales = sum(get_safe_target(m, quarters, "sales") for m in internal_managers) * 10000
+        target_profit = sum(get_safe_target(m, quarters, "profit") for m in internal_managers) * 10000
         managers_to_check = internal_managers
     elif selected_manager == "외부 인력 전체보기":
-        target_sales = sum(float(targets_data[m][q]["sales"]) for m in external_managers for q in quarters) * 10000
-        target_profit = sum(float(targets_data[m][q]["profit"]) for m in external_managers for q in quarters) * 10000
+        target_sales = sum(get_safe_target(m, quarters, "sales") for m in external_managers) * 10000
+        target_profit = sum(get_safe_target(m, quarters, "profit") for m in external_managers) * 10000
         managers_to_check = external_managers
     else:
-        target_sales = sum(float(targets_data[selected_manager][q]["sales"]) for q in quarters) * 10000
-        target_profit = sum(float(targets_data[selected_manager][q]["profit"]) for q in quarters) * 10000
+        target_sales = get_safe_target(selected_manager, quarters, "sales") * 10000
+        target_profit = get_safe_target(selected_manager, quarters, "profit") * 10000
         managers_to_check = [selected_manager]
 
     df = df[df['Deal - 이름'].notna() & (df['Deal - 이름'].astype(str).str.strip() != "")]
