@@ -624,6 +624,14 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
         st.stop()
 
     st.sidebar.header("🔍 순위 조회 조건")
+    
+    # 연도 필터 자동 감지 및 추가
+    year_col = next((c for c in df.columns if '연도' in c or '년도' in c), None)
+    if year_col:
+        all_years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
+        selected_year = st.sidebar.selectbox("조회 연도 선택", all_years, key=f"rank_year_{st.session_state.page}")
+        df = df[df[year_col] == selected_year]
+    
     criteria = st.sidebar.radio("분석 기준 선택", ["매출 기준 순위", "이익 기준 순위"])
     period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-12)", value="1-12", key=f"rank_period_{st.session_state.page}")
     selected_months, _, selected_period_label = parse_period_input(period_input)
@@ -723,6 +731,14 @@ else:
     df = load_dashboard_data()
     if df is not None:
         st.sidebar.header("🔍 조회 조건 설정")
+        
+        # 연도 필터 자동 감지 및 추가
+        year_col = next((c for c in df.columns if '연도' in c or '년도' in c), None)
+        if year_col:
+            all_years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
+            selected_year = st.sidebar.selectbox("조회 연도 선택", all_years, key="dash_year_select")
+            df = df[df[year_col] == selected_year]
+            
         period_input = st.sidebar.text_input("조회 기간 입력 (예: 1-3, 1-9)", value="1-12", key="dash_period_input")
         selected_months, _, selected_period_label = parse_period_input(period_input)
         
