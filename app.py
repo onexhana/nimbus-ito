@@ -159,34 +159,53 @@ def draw_gauge(current_val, target_val, title, color="#636EFA", bg_color="#F0F2F
 # 페이지 설정
 st.set_page_config(page_title="Deal-ito 통합 실적 대시보드", layout="wide")
 
-# 사이드바 버튼 줄바꿈 허용을 위한 커스텀 CSS
-st.markdown("""
-    <style>
-    div[data-testid="stSidebar"] button {
-        white-space: normal !important;
-        height: auto !important;
-        min-height: 45px !important;
-        line-height: 1.3 !important;
-        padding-top: 10px !important;
-        padding-bottom: 10px !important;
-        display: block !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
 # 세션 상태 초기화
 if 'page' not in st.session_state:
     st.session_state.page = "dashboard"
 
 # 사이드바 메뉴 구성
 st.sidebar.title("📌 메뉴")
+
+# 사이드바 특정 버튼 배경색 변경 CSS
+st.markdown("""
+    <style>
+    /* 모든 사이드바 버튼 공통 스타일 (줄바꿈 허용) */
+    [data-testid="stSidebar"] .stButton button {
+        white-space: normal !important;
+        height: auto !important;
+        min-height: 45px !important;
+        line-height: 1.2 !important;
+        padding: 10px 5px !important;
+        display: block !important;
+    }
+
+    /* 하단 3개 버튼 (구성원별 달성률, 고객사별 순위, 엔드클라이언트 순위) 배경색 적용 */
+    /* stSidebar 내의 5, 6, 7번째 element-container 내부의 버튼을 타겟팅 */
+    [data-testid="stSidebar"] div.element-container:nth-of-type(5) button,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(6) button,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button {
+        background-color: #FFF0F0 !important; /* 연한 빨강 배경 */
+        color: #B71C1C !important;            /* 진한 빨강 글자 */
+        border: 1px solid #FFCDD2 !important; /* 연한 빨강 테두리 */
+    }
+
+    /* 호버(마우스 올렸을 때) 효과 */
+    [data-testid="stSidebar"] div.element-container:nth-of-type(5) button:hover,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(6) button:hover,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button:hover {
+        background-color: #FFCDD2 !important;
+        border: 1px solid #EF9A9A !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 if st.sidebar.button("👥 인력 명단 관리", use_container_width=True):
     st.session_state.page = "personnel"
 if st.sidebar.button("📊 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
 if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
-if st.sidebar.button("📈 목표 달성률 조회", use_container_width=True):
+if st.sidebar.button("📈 구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
 if st.sidebar.button("🏢 고객사별\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
@@ -468,7 +487,7 @@ elif st.session_state.page == "targets":
 
 # 3. 목표 달성률 확인
 elif st.session_state.page == "achievement":
-    st.title("📈 목표 달성률 확인하기")
+    st.title("📈 구성원별 달성률 조회")
     df = load_dashboard_data()
     targets_data = load_targets()
     
