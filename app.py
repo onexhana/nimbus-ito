@@ -242,11 +242,11 @@ st.markdown("""
         display: block !important;
     }
 
-    /* 하단 3개 버튼 (구성원별 달성률, 고객사별 순위, 엔드클라이언트 순위) 배경색 적용 */
-    /* stSidebar 내의 5, 6, 7번째 element-container 내부의 버튼을 타겟팅 */
+    /* 하단 4개 버튼 (구성원별 달성률, 월별 매출/이익, 고객사별 순위, 엔드클라이언트 순위) 배경색 적용 */
     [data-testid="stSidebar"] div.element-container:nth-of-type(5) button,
     [data-testid="stSidebar"] div.element-container:nth-of-type(6) button,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button {
+    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(8) button {
         background-color: #FFF0F0 !important; /* 연한 빨강 배경 */
         color: #B71C1C !important;            /* 진한 빨강 글자 */
         border: 1px solid #FFCDD2 !important; /* 연한 빨강 테두리 */
@@ -255,7 +255,8 @@ st.markdown("""
     /* 호버(마우스 올렸을 때) 효과 */
     [data-testid="stSidebar"] div.element-container:nth-of-type(5) button:hover,
     [data-testid="stSidebar"] div.element-container:nth-of-type(6) button:hover,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button:hover {
+    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button:hover,
+    [data-testid="stSidebar"] div.element-container:nth-of-type(8) button:hover {
         background-color: #FFCDD2 !important;
         border: 1px solid #EF9A9A !important;
     }
@@ -270,6 +271,8 @@ if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
 if st.sidebar.button("📈 구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
+if st.sidebar.button("📅 월별 매출/이익 조회", use_container_width=True):
+    st.session_state.page = "monthly_sales"
 if st.sidebar.button("🏢 고객사별\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
 if st.sidebar.button("👤 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
@@ -744,7 +747,77 @@ elif st.session_state.page == "achievement":
             else:
                 st.info("이익 내역이 없습니다.")
 
-# 4. 고객사/엔드클라이언트 순위 조회 공통 로직
+# 4. 월별 매출/이익 조회
+elif st.session_state.page == "monthly_sales":
+    st.title("📅 월별 매출/이익 조회")
+    df = load_dashboard_data()
+    
+    if df is None:
+        st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
+        st.stop()
+
+    st.sidebar.header("🔍 조회 조건")
+    
+    # 연도 선택
+    year_cols = [col for col in df.columns if '연도' in col or '년도' in col]
+    if year_cols:
+        year_col = year_cols[0]
+        years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
+        selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=years, index=0)
+        df = df[df[year_col] == selected_year]
+    else:
+        all_data = load_targets()
+        available_years = sorted(list(all_data.get("targets", {}).keys()), reverse=True)
+        if not available_years:
+            available_years = ["2026"]
+        selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=available_years, index=0)
+
+    # 월별 매출/이익 컬럼 확인
+    sales_cols = [c for c in df.columns if "월별매출" in c and "(" in c]
+    profit_cols = [c for c in df.columns if "월별이익" in c and "(" in c]
+
+    if not sales_cols and not profit_cols:
+        st.info("엑셀 파일에 월별 매출/이익 데이터(Deal - @월별매출, Deal - @월별이익)가 없습니다.")
+    else:
+        months = list(range(1, 13))
+        monthly_sales = []
+        monthly_profit = []
+
+        for m in months:
+            # 엑셀 컬럼: (01)~1월, (02)~2월, ... (12)~12월
+            s_col = f"Deal - @월별매출 ({m:02d})"
+            p_col = f"Deal - @월별이익 ({m:02d})"
+            s_val = df[s_col].apply(clean_currency_val).sum() if s_col in df.columns else 0
+            p_val = df[p_col].apply(clean_currency_val).sum() if p_col in df.columns else 0
+            monthly_sales.append(s_val)
+            monthly_profit.append(p_val)
+
+        summary_df = pd.DataFrame({
+            "월": [f"{m}월" for m in months],
+            "매출액(원)": monthly_sales,
+            "이익액(원)": monthly_profit
+        })
+
+        st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
+
+        # 세로 막대 차트 (매출: 빨강, 이익: 파랑, 1-12월 한눈에)
+        month_labels = [f"{m}월" for m in range(1, 13)]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name="매출", x=month_labels, y=summary_df["매출액(원)"], marker_color="#E53935", marker_line_width=0.5, marker_line_color="#B71C1C"))
+        fig.add_trace(go.Bar(name="이익", x=month_labels, y=summary_df["이익액(원)"], marker_color="#1E88E5", marker_line_width=0.5, marker_line_color="#0D47A1"))
+        fig.update_layout(
+            barmode="group",
+            title=f"{selected_year}년 월별 매출/이익",
+            xaxis={"title": "", "tickmode": "array", "tickvals": month_labels, "tickangle": -45},
+            yaxis={"title": "금액(원)", "tickformat": ",d", "rangemode": "tozero"},
+            height=500,
+            margin=dict(l=80, r=40, t=60, b=80),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.dataframe(summary_df.style.format({"매출액(원)": "{:,.0f}", "이익액(원)": "{:,.0f}"}), use_container_width=True, hide_index=True)
+
+# 5. 고객사/엔드클라이언트 순위 조회 공통 로직
 elif st.session_state.page in ["rank_customer", "rank_endclient"]:
     is_customer = st.session_state.page == "rank_customer"
     title = "🏢 고객사별 매출/이익 순위 조회" if is_customer else "👤 엔드클라이언트 매출/이익 순위 조회"
