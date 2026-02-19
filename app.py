@@ -799,6 +799,9 @@ elif st.session_state.page == "monthly_sales":
         })
 
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
+        total_sales = sum(monthly_sales)
+        total_profit = sum(monthly_profit)
+        st.markdown(f"**전체 매출:** {total_sales:,.0f}원 | **전체 이익:** {total_profit:,.0f}원")
 
         # 세로 막대 차트 (매출: 빨강, 이익: 파랑, 1-12월 한눈에)
         month_labels = [f"{m}월" for m in range(1, 13)]
