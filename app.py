@@ -801,10 +801,23 @@ elif st.session_state.page == "monthly_sales":
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
         total_sales = sum(monthly_sales)
         total_profit = sum(monthly_profit)
+        mm_col = next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+        has_mm = mm_col is not None
+        total_mm = df[mm_col].apply(clean_currency_val).sum() if has_mm else 0
+        avg_sales = total_sales / total_mm if total_mm > 0 else 0
+        avg_profit = total_profit / total_mm if total_mm > 0 else 0
+        if has_mm and total_mm > 0:
+            avg_part = f" | <span style=\"color: #E53935;\">월평균 매출: {avg_sales:,.0f}원</span> | <span style=\"color: #1E88E5;\">월평균 이익: {avg_profit:,.0f}원</span>"
+        else:
+            avg_part = ""
+            if not has_mm:
+                with st.expander("🔍 월평균이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
+                    st.write("월평균을 위해 **'MM'**과 **'연도별'**이 포함된 컬럼이 필요합니다. (예: Deal - @MM (연도별))")
+                    st.write("현재 로드된 컬럼:", list(df.columns))
         st.markdown(f"""
         <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
             <span style="color: #E53935;">전체 매출: {total_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span>
+            <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span>{avg_part}
         </div>
         """, unsafe_allow_html=True)
 
@@ -1005,7 +1018,8 @@ else:
             # 필터링 로직 수정: 선택된 담당자 리스트가 있으면 해당 명단만, 없으면 빈 데이터프레임 반환
             return combined[combined['담당자'].isin(selected_managers)]
 
-        tab1, tab2 = st.tabs(["💰 매출 분석", "📉 이익 분석"])
+        mm_col = next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+        tab1, tab2, tab3 = st.tabs(["💰 매출 분석", "📉 이익 분석", "📊 전체 분석"])
         for tab, col_name, label in [(tab1, '선택기간_총매출', "매출"), (tab2, '선택기간_총이익', "이익")]:
             with tab:
                 res_df = calc_consolidated(col_name)
@@ -1047,4 +1061,43 @@ else:
                     disp_df = res_df[res_df['반영실적'] > 0].groupby(['Deal명', '담당자']).agg({'원금액': 'first', '역할': lambda x: ', '.join(x), '비중_num': 'sum', '반영실적': 'sum'}).reset_index()
                     disp_df['반영비율'] = disp_df['비중_num'].apply(lambda x: f"{int(x*100)}%")
                     st.dataframe(disp_df[['Deal명', '담당자', '역할', '원금액', '반영비율', '반영실적']].style.format({'원금액': '{:,.0f}원', '반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
+
+        with tab3:
+            st.markdown("<h4 style='text-align: center; margin-bottom: 20px;'>📊 전체 분석</h4>", unsafe_allow_html=True)
+            filtered = df[df['Deal - 담당자_고객'].isin(selected_managers) | df['Deal - 담당자_관리'].isin(selected_managers) | df['Deal - 담당자_소싱'].isin(selected_managers)]
+            deal_id_col = "Deal - RecordId" if "Deal - RecordId" in df.columns else "Deal - 이름"
+            if deal_id_col == "Deal - 이름":
+                filtered = filtered.copy()
+                filtered["_deal_key"] = filtered["Deal - 이름"].astype(str).str.replace(r"\s*\([^)]*\)$", "", regex=True)
+                deal_id_col = "_deal_key"
+            deal_count = filtered[deal_id_col].nunique()
+            agg_dict = {'선택기간_총매출': 'first', '선택기간_총이익': 'first'}
+            if mm_col:
+                agg_dict[mm_col] = 'first'
+            agg_df = filtered.groupby(deal_id_col).agg(agg_dict).reset_index()
+
+            sales_total = agg_df['선택기간_총매출'].sum()
+            sales_avg = agg_df['선택기간_총매출'].mean() if deal_count > 0 else 0
+            profit_total = agg_df['선택기간_총이익'].sum()
+            profit_avg = agg_df['선택기간_총이익'].mean() if deal_count > 0 else 0
+
+            st.markdown("**1. MM 분석**")
+            if mm_col:
+                mm_total = agg_df[mm_col].apply(clean_currency_val).sum()
+                mm_avg = agg_df[mm_col].apply(clean_currency_val).mean() if deal_count > 0 else 0
+                c1, c2 = st.columns(2)
+                with c1: st.metric("MM 전체값", f"{mm_total:,.2f}")
+                with c2: st.metric("MM 평균값", f"{mm_avg:,.2f}")
+            else:
+                st.caption("'Deal - @MM (연도별)' 컬럼이 없습니다.")
+
+            st.markdown("**2. 매출 분석**")
+            c1, c2 = st.columns(2)
+            with c1: st.metric("매출 전체값", f"{sales_total:,.0f}원")
+            with c2: st.metric("매출 평균값", f"{sales_avg:,.0f}원")
+
+            st.markdown("**3. 이익 분석**")
+            c1, c2 = st.columns(2)
+            with c1: st.metric("이익 전체값", f"{profit_total:,.0f}원")
+            with c2: st.metric("이익 평균값", f"{profit_avg:,.0f}원")
     else: st.info("좌측 사이드바에서 실적 엑셀 파일을 업로드해 주세요.")
