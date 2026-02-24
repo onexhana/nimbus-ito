@@ -227,7 +227,7 @@ if 'page' not in st.session_state:
     st.session_state.page = "dashboard"
 
 # 사이드바 메뉴 구성
-st.sidebar.title("메뉴")
+st.sidebar.title("📌 메뉴")
 
 # 현재 페이지 버튼 강조용 키워드
 _page_keywords = {
