@@ -873,10 +873,12 @@ elif st.session_state.page == "monthly_sales":
                 with st.expander("🔍 인당 매출/이익이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
                     st.write("인당 매출/이익을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
                     st.write("현재 로드된 컬럼:", list(df.columns))
+        profit_rate = (total_profit / total_sales * 100) if total_sales else 0
         st.markdown(f"""
         <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
             <span style="color: #E53935;">전체 매출: {total_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span>{avg_part}
+            <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span> | 
+            <span style="color: #43A047;">이익률: {profit_rate:.1f}%</span>{avg_part}
         </div>
         """, unsafe_allow_html=True)
 
