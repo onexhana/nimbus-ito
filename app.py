@@ -915,42 +915,54 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
         st.error(f"엑셀 파일에 '{target_col}' 컬럼이 없습니다.")
         st.stop()
 
-    # 실적 데이터 정제 및 합산 로직
-    is_sales = "매출" in criteria
-    prefix = "@월별매출" if is_sales else "@월별이익"
-    cols = [f"Deal - {prefix} ({m})" for m in selected_months]
-    
-    for col in cols:
+    # 실적 데이터 정제 - 매출/이익 둘 다 계산
+    sales_cols = [f"Deal - @월별매출 ({m})" for m in selected_months]
+    profit_cols = [f"Deal - @월별이익 ({m})" for m in selected_months]
+    for col in sales_cols + profit_cols:
         if col in df.columns:
             df[col] = df[col].apply(clean_currency_val)
     
-    # 연도별 컬럼 우선 사용
-    year_col = "Deal - @매출액 (연도별)" if is_sales else "Deal - @이익 (연도별)"
-    if len(selected_months) == 12 and year_col in df.columns:
-        df['analysis_val'] = df[year_col].apply(clean_currency_val)
+    # 연도별 컬럼 우선 사용 (12월 전체 조회 시)
+    if len(selected_months) == 12 and "Deal - @매출액 (연도별)" in df.columns and "Deal - @이익 (연도별)" in df.columns:
+        df['_총매출'] = df['Deal - @매출액 (연도별)'].apply(clean_currency_val)
+        df['_총이익'] = df['Deal - @이익 (연도별)'].apply(clean_currency_val)
     else:
-        df['analysis_val'] = df[cols].sum(axis=1)
+        df['_총매출'] = df[[c for c in sales_cols if c in df.columns]].sum(axis=1)
+        df['_총이익'] = df[[c for c in profit_cols if c in df.columns]].sum(axis=1)
+    
+    # MM 컬럼
+    mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+    if mm_col:
+        df['_mm'] = df[mm_col].apply(clean_currency_val)
+    else:
+        df['_mm'] = 0.0
 
-    # 그룹화 및 정렬
-    rank_df = df.groupby(target_col)['analysis_val'].sum().reset_index()
-    rank_df = rank_df[rank_df['analysis_val'] != 0] # 0원 제외 (마이너스 이익 포함)
-    rank_df = rank_df.sort_values('analysis_val', ascending=False).reset_index(drop=True)
-    rank_df.index = rank_df.index + 1
+    is_sales = "매출" in criteria
+
+    # 그룹화: 항목별 총MM, 총매출, 총이익
+    agg_dict = {'_총매출': 'sum', '_총이익': 'sum'}
+    if mm_col:
+        agg_dict['_mm'] = 'sum'
+    rank_df = df.groupby(target_col).agg(agg_dict).reset_index()
+    rank_df = rank_df[(rank_df['_총매출'] != 0) | (rank_df['_총이익'] != 0)]
+    rank_df['이익률'] = (rank_df['_총이익'] / rank_df['_총매출'] * 100).replace([float('inf'), -float('inf')], 0).fillna(0)
+    sort_col = '_총매출' if is_sales else '_총이익'
+    rank_df = rank_df.sort_values(sort_col, ascending=False).reset_index(drop=True)
+    rank_df.index = rank_df.index + 1  # 순위 1, 2, 3...
 
     if rank_df.empty:
         st.info("조회된 데이터가 없습니다.")
     else:
         label = "매출액" if is_sales else "이익액"
+        plot_col = '_총매출' if is_sales else '_총이익'
         color = "#EF553B" if is_sales else "#636EFA"
         st.subheader(f"🏆 {criteria} (Top 5 + 기타)")
         
         # 상위 5위와 나머지(기타) 데이터 처리
         if len(rank_df) > 5:
             top_5 = rank_df.head(5).copy()
-            others_sum = rank_df.iloc[5:]['analysis_val'].sum()
-            
-            # 기타 항목 추가
-            others_row = pd.DataFrame({target_col: ['기타'], 'analysis_val': [others_sum]})
+            others_sum = rank_df.iloc[5:][plot_col].sum()
+            others_row = pd.DataFrame({target_col: ['기타'], plot_col: [others_sum]})
             plot_df = pd.concat([top_5, others_row], ignore_index=True)
         else:
             plot_df = rank_df.copy()
@@ -959,43 +971,31 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
         fig = px.bar(
             plot_df, 
             x=target_col, 
-            y='analysis_val',
-            labels={target_col: target_col.replace("Deal - ", ""), 'analysis_val': label},
+            y=plot_col,
+            labels={target_col: target_col.replace("Deal - ", ""), plot_col: label},
             color_discrete_sequence=[color]
         )
         
-        # 호버 효과 설정 (막대 위 중앙에 숫자 표시)
         fig.update_traces(
             hovertemplate="<b>%{y:,.0f}원</b><extra></extra>",
-            hoverlabel=dict(
-                bgcolor="white", 
-                bordercolor="white", 
-                font=dict(size=22, family="Malgun Gothic", color="black")
-            )
+            hoverlabel=dict(bgcolor="white", bordercolor="white", font=dict(size=22, family="Malgun Gothic", color="black"))
         )
-        
         fig.update_layout(
-            xaxis_title="",
-            yaxis_title=f"{label} (원)",
-            height=500,
-            hovermode='x', # 마우스 수직 라인 기준 막대 상단에 호버 표시
-            xaxis=dict(
-                tickfont=dict(size=16, family="Malgun Gothic", color="black")
-            ),
-            yaxis=dict(
-                tickfont=dict(size=14),
-                tickformat=",d",
-                range=[0, plot_df['analysis_val'].max() * 1.2] # 상단 여유 공간 충분히 확보
-            ),
-            margin=dict(t=50, b=50) 
+            xaxis_title="", yaxis_title=f"{label} (원)", height=500, hovermode='x',
+            xaxis=dict(tickfont=dict(size=16, family="Malgun Gothic", color="black")),
+            yaxis=dict(tickfont=dict(size=14), tickformat=",d", range=[0, plot_df[plot_col].max() * 1.2]),
+            margin=dict(t=50, b=50)
         )
         st.plotly_chart(fig, use_container_width=True)
 
         st.write("---")
         st.subheader(f"📋 {criteria} 전체 내역")
-        display_rank_df = rank_df.copy()
-        display_rank_df.columns = ['항목', f'총 {label}']
-        st.dataframe(display_rank_df.style.format({f'총 {label}': '{:,.0f}원'}), use_container_width=True)
+        display_rank_df = rank_df[[target_col] + (['_mm'] if mm_col else []) + ['_총매출', '_총이익', '이익률']].copy()
+        display_rank_df.columns = ['항목'] + (['총MM'] if mm_col else []) + ['총매출액', '총이익액', '이익률']
+        fmt_dict = {'총매출액': '{:,.0f}원', '총이익액': '{:,.0f}원', '이익률': '{:.1f}%'}
+        if mm_col:
+            fmt_dict['총MM'] = '{:,.2f}'
+        st.dataframe(display_rank_df.style.format(fmt_dict), use_container_width=True)
 
 # 5. 전체 실적 대시보드
 else:
