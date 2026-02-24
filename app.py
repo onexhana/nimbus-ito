@@ -818,7 +818,7 @@ elif st.session_state.page == "monthly_sales":
             available_years = ["2026"]
         selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=available_years, index=0)
 
-    # 월별 매출/이익 컬럼 확인
+    # 월별 컬럼: Deal - @월별매출 (01)~(12), Deal - @월별이익 (01)~(12), Deal - 실투입 (01)~(12)=월별MM
     sales_cols = [c for c in df.columns if "월별매출" in c and "(" in c]
     profit_cols = [c for c in df.columns if "월별이익" in c and "(" in c]
 
@@ -828,22 +828,28 @@ elif st.session_state.page == "monthly_sales":
         months = list(range(1, 13))
         monthly_sales = []
         monthly_profit = []
-
-        mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
-        total_mm_annual = df[mm_col].apply(clean_currency_val).sum() if mm_col else 0
+        monthly_mm = []
 
         for m in months:
             s_col = f"Deal - @월별매출 ({m:02d})"
             p_col = f"Deal - @월별이익 ({m:02d})"
+            mm_col = f"Deal - 실투입 ({m:02d})"
             s_val = df[s_col].apply(clean_currency_val).sum() if s_col in df.columns else 0
             p_val = df[p_col].apply(clean_currency_val).sum() if p_col in df.columns else 0
+            mm_val = df[mm_col].apply(clean_currency_val).sum() if mm_col in df.columns else 0
             monthly_sales.append(s_val)
             monthly_profit.append(p_val)
+            monthly_mm.append(mm_val)
 
         total_sales = sum(monthly_sales)
         total_profit = sum(monthly_profit)
-        # 월별 MM: 연간 MM을 월별 매출 비율로 분배 (매출 없으면 균등 분배)
-        monthly_mm = [total_mm_annual * (s / total_sales) if total_sales and total_mm_annual else (total_mm_annual / 12 if total_mm_annual else 0) for s in monthly_sales]
+        total_mm_annual = sum(monthly_mm)
+        # 실투입 컬럼이 없으면 연간 MM을 월별 매출 비율로 분배 (폴백)
+        if total_mm_annual == 0:
+            mm_col_annual = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+            annual_mm = df[mm_col_annual].apply(clean_currency_val).sum() if mm_col_annual else 0
+            monthly_mm = [annual_mm * (s / total_sales) if total_sales else (annual_mm / 12) for s in monthly_sales]
+            total_mm_annual = sum(monthly_mm)
         monthly_rate = [(p / s * 100) if s else 0 for s, p in zip(monthly_sales, monthly_profit)]
 
         summary_df = pd.DataFrame({
@@ -855,7 +861,7 @@ elif st.session_state.page == "monthly_sales":
         })
 
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
-        has_mm = mm_col is not None and total_mm_annual > 0
+        has_mm = total_mm_annual > 0
         avg_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
         avg_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
         if has_mm:
@@ -865,7 +871,7 @@ elif st.session_state.page == "monthly_sales":
             avg_part = ""
             if not has_mm:
                 with st.expander("🔍 월평균이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
-                    st.write("월평균을 위해 **'MM'**과 **'연도별'**이 포함된 컬럼이 필요합니다. (예: Deal - @MM (연도별))")
+                    st.write("월평균을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
                     st.write("현재 로드된 컬럼:", list(df.columns))
         st.markdown(f"""
         <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
