@@ -318,9 +318,9 @@ if st.sidebar.button("2. 월별 매출/이익 조회", use_container_width=True)
     st.session_state.page = "monthly_sales"
 if st.sidebar.button("3. 전체 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
-if st.sidebar.button("4. 고객사별\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("4. 고객사별 매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
-if st.sidebar.button("5. 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("5. 엔드클라이언트 매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
