@@ -227,7 +227,7 @@ if 'page' not in st.session_state:
     st.session_state.page = "dashboard"
 
 # 사이드바 메뉴 구성
-st.sidebar.title("📌 메뉴")
+st.sidebar.title("메뉴")
 
 # 현재 페이지 버튼 강조용 키워드
 _page_keywords = {
@@ -308,19 +308,19 @@ if _active_keyword:
     except Exception:
         pass
 
-if st.sidebar.button("👥 인력 명단 관리", use_container_width=True):
+if st.sidebar.button("인력 명단 관리", use_container_width=True):
     st.session_state.page = "personnel"
-if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
+if st.sidebar.button("목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
-if st.sidebar.button("📈 1. 구성원별 달성률 조회", use_container_width=True):
+if st.sidebar.button("1. 구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
-if st.sidebar.button("📅 2. 월별 매출/이익 조회", use_container_width=True):
+if st.sidebar.button("2. 월별 매출/이익 조회", use_container_width=True):
     st.session_state.page = "monthly_sales"
-if st.sidebar.button("📊 3. 전체 실적 대시보드", use_container_width=True):
+if st.sidebar.button("3. 전체 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
-if st.sidebar.button("🏢 4. 고객사별\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("4. 고객사별\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
-if st.sidebar.button("👤 5. 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("5. 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
