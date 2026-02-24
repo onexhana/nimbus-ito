@@ -229,53 +229,98 @@ if 'page' not in st.session_state:
 # 사이드바 메뉴 구성
 st.sidebar.title("📌 메뉴")
 
-# 사이드바 특정 버튼 배경색 변경 CSS
+# 현재 페이지 버튼 강조용 키워드
+_page_keywords = {
+    "personnel": "인력 명단",
+    "targets": "목표 설정",
+    "achievement": "구성원별 달성률",
+    "monthly_sales": "월별 매출",
+    "dashboard": "전체 실적 대시보드",
+    "rank_customer": "고객사별",
+    "rank_endclient": "엔드클라이언트",
+}
+_active_keyword = _page_keywords.get(st.session_state.page, "")
+
+# 사이드바 버튼 공통 스타일 (색상은 JS로 적용)
 st.markdown("""
     <style>
-    /* 모든 사이드바 버튼 공통 스타일 (줄바꿈 허용) */
-    [data-testid="stSidebar"] .stButton button {
+    [data-testid="stSidebar"] .stButton > button {
         white-space: normal !important;
         height: auto !important;
         min-height: 45px !important;
         line-height: 1.2 !important;
         padding: 10px 5px !important;
-        display: block !important;
-    }
-
-    /* 하단 4개 버튼 (구성원별 달성률, 월별 매출/이익, 고객사별 순위, 엔드클라이언트 순위) 배경색 적용 */
-    [data-testid="stSidebar"] div.element-container:nth-of-type(5) button,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(6) button,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(8) button {
-        background-color: #FFF0F0 !important; /* 연한 빨강 배경 */
-        color: #B71C1C !important;            /* 진한 빨강 글자 */
-        border: 1px solid #FFCDD2 !important; /* 연한 빨강 테두리 */
-    }
-
-    /* 호버(마우스 올렸을 때) 효과 */
-    [data-testid="stSidebar"] div.element-container:nth-of-type(5) button:hover,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(6) button:hover,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(7) button:hover,
-    [data-testid="stSidebar"] div.element-container:nth-of-type(8) button:hover {
-        background-color: #FFCDD2 !important;
-        border: 1px solid #EF9A9A !important;
     }
     </style>
     """, unsafe_allow_html=True)
+
+# 사이드바 버튼 색상 - 여러 DOM 구조 대응
+st.markdown("""
+    <style>
+    /* 방식1: .stButton nth-of-type (기본 구조) */
+    [data-testid="stSidebar"] .stButton:nth-of-type(4) > button,
+    [data-testid="stSidebar"] .stButton:nth-of-type(5) > button,
+    [data-testid="stSidebar"] .stButton:nth-of-type(6) > button,
+    [data-testid="stSidebar"] .stButton:nth-of-type(7) > button {
+        background-color: #FFF0F0 !important;
+        color: #B71C1C !important;
+        border: 1px solid #FFCDD2 !important;
+    }
+    /* 방식2: element-container (다른 구조) */
+    [data-testid="stSidebar"] .element-container:nth-of-type(5) button,
+    [data-testid="stSidebar"] .element-container:nth-of-type(6) button,
+    [data-testid="stSidebar"] .element-container:nth-of-type(7) button,
+    [data-testid="stSidebar"] .element-container:nth-of-type(8) button {
+        background-color: #FFF0F0 !important;
+        color: #B71C1C !important;
+        border: 1px solid #FFCDD2 !important;
+    }
+    /* 방식3: row-widget (다른 구조) */
+    [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(4) > button,
+    [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(5) > button,
+    [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(6) > button,
+    [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(7) > button {
+        background-color: #FFF0F0 !important;
+        color: #B71C1C !important;
+        border: 1px solid #FFCDD2 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 현재 페이지 강조 - JS (DOM 완성 대기)
+if _active_keyword:
+    _js = f'''<div style="height:0;overflow:hidden;"><script>
+(function applySidebarStyles(){{
+ var doc=document;var s=doc.querySelector("[data-testid=stSidebar]");
+ if(!s){{setTimeout(applySidebarStyles,300);return;}}
+ var btns=s.querySelectorAll(".stButton>button");if(btns.length<4){{setTimeout(applySidebarStyles,200);return;}}
+ var pink=["구성원별 달성률","월별 매출","고객사별","엔드클라이언트"];
+ var active="{_active_keyword}";
+ for(var i=0;i<btns.length;i++){{
+  var t=(btns[i].textContent||"").replace(/\\s+/g," ");
+  for(var j=0;j<pink.length;j++){{if(t.indexOf(pink[j])!==-1){{btns[i].style.setProperty("background-color","#FFF0F0","important");btns[i].style.setProperty("color","#B71C1C","important");btns[i].style.setProperty("border","1px solid #FFCDD2","important");break;}}}}
+  if(active&&t.indexOf(active)!==-1){{btns[i].style.setProperty("background-color","#FFCDD2","important");btns[i].style.setProperty("border","2px solid #E57373","important");}}
+ }}
+}})();
+</script></div>'''
+    try:
+        st.html(_js, width=1, unsafe_allow_javascript=True)
+    except Exception:
+        pass
 
 if st.sidebar.button("👥 인력 명단 관리", use_container_width=True):
     st.session_state.page = "personnel"
 if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
-if st.sidebar.button("📊 전체 실적 대시보드", use_container_width=True):
-    st.session_state.page = "dashboard"
-if st.sidebar.button("📈 구성원별 달성률 조회", use_container_width=True):
+if st.sidebar.button("📈 1. 구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
-if st.sidebar.button("📅 월별 매출/이익 조회", use_container_width=True):
+if st.sidebar.button("📅 2. 월별 매출/이익 조회", use_container_width=True):
     st.session_state.page = "monthly_sales"
-if st.sidebar.button("🏢 고객사별\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("📊 3. 전체 실적 대시보드", use_container_width=True):
+    st.session_state.page = "dashboard"
+if st.sidebar.button("🏢 4. 고객사별\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
-if st.sidebar.button("👤 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("👤 5. 엔드클라이언트\n매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
