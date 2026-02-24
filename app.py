@@ -1099,4 +1099,8 @@ else:
             c1, c2 = st.columns(2)
             with c1: st.metric("이익 전체값", f"{profit_total:,.0f}원")
             with c2: st.metric("이익 평균값", f"{profit_avg:,.0f}원")
+
+            profit_rate = (profit_total / sales_total * 100) if sales_total > 0 else 0
+            st.markdown("**4. 이익률**")
+            st.metric("이익률", f"{profit_rate:,.1f}%")
     else: st.info("좌측 사이드바에서 실적 엑셀 파일을 업로드해 주세요.")
