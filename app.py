@@ -584,10 +584,9 @@ elif st.session_state.page == "achievement":
 
     st.sidebar.header("🔍 달성률 조회 조건")
     
-    # 연도 선택 필터 (대시보드와 동일한 로직 적용)
-    year_cols = [col for col in df.columns if '연도' in col or '년도' in col]
-    if year_cols:
-        year_col = year_cols[0]
+    # 연도 필터: Deal - 연도만 사용 (Deal - @MM (연도별)은 MM 전용)
+    year_col = "Deal - 연도" if "Deal - 연도" in df.columns else next((c for c in df.columns if ('연도' in c or '년도' in c) and 'MM' not in c), None)
+    if year_col:
         years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
         selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=years, index=0)
         df = df[df[year_col] == selected_year]
@@ -758,10 +757,9 @@ elif st.session_state.page == "monthly_sales":
 
     st.sidebar.header("🔍 조회 조건")
     
-    # 연도 선택
-    year_cols = [col for col in df.columns if '연도' in col or '년도' in col]
-    if year_cols:
-        year_col = year_cols[0]
+    # 연도 필터: Deal - 연도만 사용 (Deal - @MM (연도별)은 MM 전용)
+    year_col = "Deal - 연도" if "Deal - 연도" in df.columns else next((c for c in df.columns if ('연도' in c or '년도' in c) and 'MM' not in c), None)
+    if year_col:
         years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
         selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=years, index=0)
         df = df[df[year_col] == selected_year]
@@ -801,13 +799,14 @@ elif st.session_state.page == "monthly_sales":
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
         total_sales = sum(monthly_sales)
         total_profit = sum(monthly_profit)
-        mm_col = next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+        mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
         has_mm = mm_col is not None
         total_mm = df[mm_col].apply(clean_currency_val).sum() if has_mm else 0
         avg_sales = total_sales / total_mm if total_mm > 0 else 0
         avg_profit = total_profit / total_mm if total_mm > 0 else 0
         if has_mm and total_mm > 0:
-            avg_part = f" | <span style=\"color: #E53935;\">월평균 매출: {avg_sales:,.0f}원</span> | <span style=\"color: #1E88E5;\">월평균 이익: {avg_profit:,.0f}원</span>"
+            avg_part = f"""<br><span style="color: #E53935;">월평균 매출: {avg_sales:,.0f}원</span> | 
+            <span style="color: #1E88E5;">월평균 이익: {avg_profit:,.0f}원</span>"""
         else:
             avg_part = ""
             if not has_mm:
@@ -851,8 +850,8 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
 
     st.sidebar.header("🔍 순위 조회 조건")
     
-    # 연도 필터 자동 감지 및 추가
-    year_col = next((c for c in df.columns if '연도' in c or '년도' in c), None)
+    # 연도 필터: Deal - 연도만 사용 (Deal - @MM (연도별)은 MM 전용)
+    year_col = "Deal - 연도" if "Deal - 연도" in df.columns else next((c for c in df.columns if ('연도' in c or '년도' in c) and 'MM' not in c), None)
     if year_col:
         all_years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
         selected_year = st.sidebar.selectbox("조회 연도 선택", all_years, key=f"rank_year_{st.session_state.page}")
@@ -958,8 +957,8 @@ else:
     if df is not None:
         st.sidebar.header("🔍 조회 조건 설정")
         
-        # 연도 필터 자동 감지 및 추가
-        year_col = next((c for c in df.columns if '연도' in c or '년도' in c), None)
+        # 연도 필터: Deal - 연도만 사용 (Deal - @MM (연도별)은 MM 전용)
+        year_col = "Deal - 연도" if "Deal - 연도" in df.columns else next((c for c in df.columns if ('연도' in c or '년도' in c) and 'MM' not in c), None)
         if year_col:
             all_years = sorted(df[year_col].dropna().unique().tolist(), reverse=True)
             selected_year = st.sidebar.selectbox("조회 연도 선택", all_years, key="dash_year_select")
@@ -1018,7 +1017,7 @@ else:
             # 필터링 로직 수정: 선택된 담당자 리스트가 있으면 해당 명단만, 없으면 빈 데이터프레임 반환
             return combined[combined['담당자'].isin(selected_managers)]
 
-        mm_col = next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+        mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
         tab1, tab2, tab3 = st.tabs(["💰 매출 분석", "📉 이익 분석", "📊 전체 분석"])
         for tab, col_name, label in [(tab1, '선택기간_총매출', "매출"), (tab2, '선택기간_총이익', "이익")]:
             with tab:
