@@ -829,8 +829,10 @@ elif st.session_state.page == "monthly_sales":
         monthly_sales = []
         monthly_profit = []
 
+        mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+        total_mm_annual = df[mm_col].apply(clean_currency_val).sum() if mm_col else 0
+
         for m in months:
-            # 엑셀 컬럼: (01)~1월, (02)~2월, ... (12)~12월
             s_col = f"Deal - @월별매출 ({m:02d})"
             p_col = f"Deal - @월별이익 ({m:02d})"
             s_val = df[s_col].apply(clean_currency_val).sum() if s_col in df.columns else 0
@@ -838,21 +840,25 @@ elif st.session_state.page == "monthly_sales":
             monthly_sales.append(s_val)
             monthly_profit.append(p_val)
 
+        total_sales = sum(monthly_sales)
+        total_profit = sum(monthly_profit)
+        # 월별 MM: 연간 MM을 월별 매출 비율로 분배 (매출 없으면 균등 분배)
+        monthly_mm = [total_mm_annual * (s / total_sales) if total_sales and total_mm_annual else (total_mm_annual / 12 if total_mm_annual else 0) for s in monthly_sales]
+        monthly_rate = [(p / s * 100) if s else 0 for s, p in zip(monthly_sales, monthly_profit)]
+
         summary_df = pd.DataFrame({
             "월": [f"{m}월" for m in months],
-            "매출액(원)": monthly_sales,
-            "이익액(원)": monthly_profit
+            "MM": monthly_mm,
+            "매출액": monthly_sales,
+            "이익액": monthly_profit,
+            "이익률": monthly_rate
         })
 
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
-        total_sales = sum(monthly_sales)
-        total_profit = sum(monthly_profit)
-        mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
-        has_mm = mm_col is not None
-        total_mm = df[mm_col].apply(clean_currency_val).sum() if has_mm else 0
-        avg_sales = total_sales / total_mm if total_mm > 0 else 0
-        avg_profit = total_profit / total_mm if total_mm > 0 else 0
-        if has_mm and total_mm > 0:
+        has_mm = mm_col is not None and total_mm_annual > 0
+        avg_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
+        avg_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
+        if has_mm:
             avg_part = f"""<br><span style="color: #E53935;">월평균 매출: {avg_sales:,.0f}원</span> | 
             <span style="color: #1E88E5;">월평균 이익: {avg_profit:,.0f}원</span>"""
         else:
@@ -871,8 +877,8 @@ elif st.session_state.page == "monthly_sales":
         # 세로 막대 차트 (매출: 빨강, 이익: 파랑, 1-12월 한눈에)
         month_labels = [f"{m}월" for m in range(1, 13)]
         fig = go.Figure()
-        fig.add_trace(go.Bar(name="매출", x=month_labels, y=summary_df["매출액(원)"], marker_color="#E53935", marker_line_width=0.5, marker_line_color="#B71C1C"))
-        fig.add_trace(go.Bar(name="이익", x=month_labels, y=summary_df["이익액(원)"], marker_color="#1E88E5", marker_line_width=0.5, marker_line_color="#0D47A1"))
+        fig.add_trace(go.Bar(name="매출", x=month_labels, y=summary_df["매출액"], marker_color="#E53935", marker_line_width=0.5, marker_line_color="#B71C1C"))
+        fig.add_trace(go.Bar(name="이익", x=month_labels, y=summary_df["이익액"], marker_color="#1E88E5", marker_line_width=0.5, marker_line_color="#0D47A1"))
         fig.update_layout(
             barmode="group",
             title=f"{selected_year}년 월별 매출/이익",
@@ -883,7 +889,12 @@ elif st.session_state.page == "monthly_sales":
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        st.dataframe(summary_df.style.format({"매출액(원)": "{:,.0f}", "이익액(원)": "{:,.0f}"}), use_container_width=True, hide_index=True)
+        st.dataframe(summary_df.style.format({
+            "MM": "{:,.2f}",
+            "매출액": "{:,.0f}",
+            "이익액": "{:,.0f}",
+            "이익률": "{:.1f}%"
+        }), use_container_width=True, hide_index=True)
 
 # 5. 고객사/엔드클라이언트 순위 조회 공통 로직
 elif st.session_state.page in ["rank_customer", "rank_endclient"]:
