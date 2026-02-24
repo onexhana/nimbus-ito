@@ -265,10 +265,10 @@ st.markdown("""
 
 if st.sidebar.button("👥 인력 명단 관리", use_container_width=True):
     st.session_state.page = "personnel"
-if st.sidebar.button("📊 실적 대시보드", use_container_width=True):
-    st.session_state.page = "dashboard"
 if st.sidebar.button("🎯 목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
+if st.sidebar.button("📊 전체 실적 대시보드", use_container_width=True):
+    st.session_state.page = "dashboard"
 if st.sidebar.button("📈 구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
 if st.sidebar.button("📅 월별 매출/이익 조회", use_container_width=True):
@@ -303,7 +303,7 @@ if st.session_state.page == "personnel":
     personnel_data = get_personnel_data()
     
     if not personnel_data:
-        st.warning("등록된 담당자가 없습니다. '실적 대시보드'에서 엑셀을 업로드하거나 '목표 설정하기'에서 담당자를 추가해 주세요.")
+        st.warning("등록된 담당자가 없습니다. '전체 실적 대시보드'에서 엑셀을 업로드하거나 '목표 설정하기'에서 담당자를 추가해 주세요.")
     else:
         # 데이터 구조 보정 (type 필드 없는 경우 기본값 '내부' 부여)
         updated = False
@@ -580,7 +580,7 @@ elif st.session_state.page == "achievement":
     st.title("📈 구성원별 달성률 조회")
     df = load_dashboard_data()
     
-    if df is None: st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요."); st.stop()
+    if df is None: st.warning("📊 전체 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요."); st.stop()
 
     st.sidebar.header("🔍 달성률 조회 조건")
     
@@ -752,7 +752,7 @@ elif st.session_state.page == "monthly_sales":
     df = load_dashboard_data()
     
     if df is None:
-        st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
+        st.warning("📊 전체 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
         st.stop()
 
     st.sidebar.header("🔍 조회 조건")
@@ -845,7 +845,7 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
     
     df = load_dashboard_data()
     if df is None:
-        st.warning("📊 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
+        st.warning("📊 전체 실적 대시보드에서 먼저 엑셀 파일을 업로드해 주세요.")
         st.stop()
 
     st.sidebar.header("🔍 순위 조회 조건")
@@ -949,7 +949,7 @@ elif st.session_state.page in ["rank_customer", "rank_endclient"]:
         display_rank_df.columns = ['항목', f'총 {label}']
         st.dataframe(display_rank_df.style.format({f'총 {label}': '{:,.0f}원'}), use_container_width=True)
 
-# 5. 실적 대시보드
+# 5. 전체 실적 대시보드
 else:
     st.title("📊 Deal-ito 통합 실적/이익 대시보드")
     st.markdown("좌측 사이드바에서 엑셀 파일을 업로드하면 실적을 자동 계산합니다.")
@@ -1102,5 +1102,5 @@ else:
 
             profit_rate = (profit_total / sales_total * 100) if sales_total > 0 else 0
             st.markdown("**4. 이익률**")
-            st.metric("이익률", f"{profit_rate:,.1f}%")
+            st.metric("이익률 (이익 전체값 ÷ 매출 전체값 × 100)", f"{profit_rate:,.1f}%")
     else: st.info("좌측 사이드바에서 실적 엑셀 파일을 업로드해 주세요.")
