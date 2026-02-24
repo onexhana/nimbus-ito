@@ -257,7 +257,8 @@ st.markdown("""
 # 사이드바 버튼 색상 - 여러 DOM 구조 대응
 st.markdown("""
     <style>
-    /* 방식1: .stButton nth-of-type (기본 구조) */
+    /* 방식1: .stButton nth-of-type - 3~7번(구성원별~엔드클라이언트) 연한 빨강 */
+    [data-testid="stSidebar"] .stButton:nth-of-type(3) > button,
     [data-testid="stSidebar"] .stButton:nth-of-type(4) > button,
     [data-testid="stSidebar"] .stButton:nth-of-type(5) > button,
     [data-testid="stSidebar"] .stButton:nth-of-type(6) > button,
@@ -267,6 +268,7 @@ st.markdown("""
         border: 1px solid #FFCDD2 !important;
     }
     /* 방식2: element-container (다른 구조) */
+    [data-testid="stSidebar"] .element-container:nth-of-type(4) button,
     [data-testid="stSidebar"] .element-container:nth-of-type(5) button,
     [data-testid="stSidebar"] .element-container:nth-of-type(6) button,
     [data-testid="stSidebar"] .element-container:nth-of-type(7) button,
@@ -276,6 +278,7 @@ st.markdown("""
         border: 1px solid #FFCDD2 !important;
     }
     /* 방식3: row-widget (다른 구조) */
+    [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(3) > button,
     [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(4) > button,
     [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(5) > button,
     [data-testid="stSidebar"] .row-widget.stButton:nth-of-type(6) > button,
@@ -312,15 +315,15 @@ if st.sidebar.button("인력 명단 관리", use_container_width=True):
     st.session_state.page = "personnel"
 if st.sidebar.button("목표 설정하기", use_container_width=True):
     st.session_state.page = "targets"
-if st.sidebar.button("1. 구성원별 달성률 조회", use_container_width=True):
+if st.sidebar.button("1.구성원별 달성률 조회", use_container_width=True):
     st.session_state.page = "achievement"
-if st.sidebar.button("2. 월별 매출/이익 조회", use_container_width=True):
+if st.sidebar.button("2.월별 매출/이익 조회", use_container_width=True):
     st.session_state.page = "monthly_sales"
-if st.sidebar.button("3. 전체 실적 대시보드", use_container_width=True):
+if st.sidebar.button("3.전체 실적 대시보드", use_container_width=True):
     st.session_state.page = "dashboard"
-if st.sidebar.button("4. 고객사별 매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("4.고객사별 매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_customer"
-if st.sidebar.button("5. 엔드클라이언트 매출/이익 순위 조회", use_container_width=True):
+if st.sidebar.button("5.엔드클라이언트 매출/이익 순위 조회", use_container_width=True):
     st.session_state.page = "rank_endclient"
 
 st.sidebar.write("---")
