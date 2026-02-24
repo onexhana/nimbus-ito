@@ -865,8 +865,10 @@ elif st.session_state.page == "monthly_sales":
         per_capita_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
         per_capita_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
         if has_mm:
+            per_capita_rate = (per_capita_profit / per_capita_sales * 100) if per_capita_sales else 0
             avg_part = f"""<br><span style="color: #E53935;">인당 매출: {per_capita_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">인당 이익: {per_capita_profit:,.0f}원</span>"""
+            <span style="color: #1E88E5;">인당 이익: {per_capita_profit:,.0f}원</span> | 
+            <span style="color: #43A047;">이익률: {per_capita_rate:.1f}%</span>"""
         else:
             avg_part = ""
             if not has_mm:
