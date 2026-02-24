@@ -862,16 +862,16 @@ elif st.session_state.page == "monthly_sales":
 
         st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
         has_mm = total_mm_annual > 0
-        avg_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
-        avg_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
+        per_capita_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
+        per_capita_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
         if has_mm:
-            avg_part = f"""<br><span style="color: #E53935;">월평균 매출: {avg_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">월평균 이익: {avg_profit:,.0f}원</span>"""
+            avg_part = f"""<br><span style="color: #E53935;">인당 매출: {per_capita_sales:,.0f}원</span> | 
+            <span style="color: #1E88E5;">인당 이익: {per_capita_profit:,.0f}원</span>"""
         else:
             avg_part = ""
             if not has_mm:
-                with st.expander("🔍 월평균이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
-                    st.write("월평균을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
+                with st.expander("🔍 인당 매출/이익이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
+                    st.write("인당 매출/이익을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
                     st.write("현재 로드된 컬럼:", list(df.columns))
         st.markdown(f"""
         <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
