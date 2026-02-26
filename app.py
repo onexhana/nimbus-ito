@@ -818,18 +818,50 @@ elif st.session_state.page == "monthly_sales":
             available_years = ["2026"]
         selected_year = st.sidebar.selectbox("📅 조회 연도 선택", options=available_years, index=0)
 
-    # 월별 컬럼: Deal - @월별매출 (01)~(12), Deal - @월별이익 (01)~(12), Deal - 실투입 (01)~(12)=월별MM
-    sales_cols = [c for c in df.columns if "월별매출" in c and "(" in c]
-    profit_cols = [c for c in df.columns if "월별이익" in c and "(" in c]
+    # 월별 계산: 실투입(m)/MM(연도별)*매출액(연도별), 실투입(m)/MM(연도별)*이익(연도별)
+    mm_annual_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
+    sales_annual_col = "Deal - @매출액 (연도별)" if "Deal - @매출액 (연도별)" in df.columns else None
+    profit_annual_col = "Deal - @이익 (연도별)" if "Deal - @이익 (연도별)" in df.columns else None
+    use_new_formula = mm_annual_col and sales_annual_col and profit_annual_col and any(f"Deal - 실투입 ({m:02d})" in df.columns for m in range(1, 13))
 
-    if not sales_cols and not profit_cols:
-        st.info("엑셀 파일에 월별 매출/이익 데이터(Deal - @월별매출, Deal - @월별이익)가 없습니다.")
-    else:
+    if use_new_formula:
         months = list(range(1, 13))
         monthly_sales = []
         monthly_profit = []
         monthly_mm = []
+        mm_vals = df[mm_annual_col].apply(clean_currency_val)
+        sales_vals = df[sales_annual_col].apply(clean_currency_val)
+        profit_vals = df[profit_annual_col].apply(clean_currency_val)
 
+        for m in months:
+            si_col = f"Deal - 실투입 ({m:02d})"
+            si_vals = df[si_col].apply(clean_currency_val) if si_col in df.columns else pd.Series(0.0, index=df.index)
+            monthly_mm.append(si_vals.sum())
+            # m월 매출 = Σ (실투입(m)/MM(연도별)*매출액(연도별)), MM=0이면 0
+            divisor = mm_vals.replace(0, float('nan'))
+            ratio = (si_vals / divisor).fillna(0)
+            s_val = (ratio * sales_vals).sum()
+            p_val = (ratio * profit_vals).sum()
+            monthly_sales.append(s_val)
+            monthly_profit.append(p_val)
+
+        total_sales = sum(monthly_sales)
+        total_profit = sum(monthly_profit)
+        total_mm_annual = sum(monthly_mm)
+        if total_mm_annual == 0 and mm_annual_col:
+            monthly_mm = [mm_vals.sum() * (s / total_sales) if total_sales else (mm_vals.sum() / 12) for s in monthly_sales]
+            total_mm_annual = sum(monthly_mm)
+        monthly_rate = [(p / s * 100) if s else 0 for s, p in zip(monthly_sales, monthly_profit)]
+    else:
+        sales_cols = [c for c in df.columns if "월별매출" in c and "(" in c]
+        profit_cols = [c for c in df.columns if "월별이익" in c and "(" in c]
+        if not sales_cols and not profit_cols:
+            st.info("엑셀 파일에 **Deal - @MM (연도별)**, **Deal - @매출액 (연도별)**, **Deal - @이익 (연도별)**, **Deal - 실투입 (01)~(12)** 컬럼 또는 월별 매출/이익 컬럼이 필요합니다.")
+            st.stop()
+        months = list(range(1, 13))
+        monthly_sales = []
+        monthly_profit = []
+        monthly_mm = []
         for m in months:
             s_col = f"Deal - @월별매출 ({m:02d})"
             p_col = f"Deal - @월별이익 ({m:02d})"
@@ -840,71 +872,67 @@ elif st.session_state.page == "monthly_sales":
             monthly_sales.append(s_val)
             monthly_profit.append(p_val)
             monthly_mm.append(mm_val)
-
         total_sales = sum(monthly_sales)
         total_profit = sum(monthly_profit)
         total_mm_annual = sum(monthly_mm)
-        # 실투입 컬럼이 없으면 연간 MM을 월별 매출 비율로 분배 (폴백)
-        if total_mm_annual == 0:
-            mm_col_annual = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
-            annual_mm = df[mm_col_annual].apply(clean_currency_val).sum() if mm_col_annual else 0
+        if total_mm_annual == 0 and mm_annual_col:
+            annual_mm = df[mm_annual_col].apply(clean_currency_val).sum() if mm_annual_col else 0
             monthly_mm = [annual_mm * (s / total_sales) if total_sales else (annual_mm / 12) for s in monthly_sales]
             total_mm_annual = sum(monthly_mm)
         monthly_rate = [(p / s * 100) if s else 0 for s, p in zip(monthly_sales, monthly_profit)]
 
-        summary_df = pd.DataFrame({
-            "월": [f"{m}월" for m in months],
-            "MM": monthly_mm,
-            "매출액": monthly_sales,
-            "이익액": monthly_profit,
-            "이익률": monthly_rate
-        })
+    summary_df = pd.DataFrame({
+        "월": [f"{m}월" for m in months],
+        "MM": monthly_mm,
+        "매출액": monthly_sales,
+        "이익액": monthly_profit,
+        "이익률": monthly_rate
+    })
 
-        st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
-        has_mm = total_mm_annual > 0
-        per_capita_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
-        per_capita_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
-        if has_mm:
-            per_capita_rate = (per_capita_profit / per_capita_sales * 100) if per_capita_sales else 0
-            avg_part = f"""<br><span style="color: #E53935;">인당 매출: {per_capita_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">인당 이익: {per_capita_profit:,.0f}원</span> | 
-            <span style="color: #43A047;">이익률: {per_capita_rate:.1f}%</span>"""
-        else:
-            avg_part = ""
-            if not has_mm:
-                with st.expander("🔍 인당 매출/이익이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
-                    st.write("인당 매출/이익을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
-                    st.write("현재 로드된 컬럼:", list(df.columns))
-        profit_rate = (total_profit / total_sales * 100) if total_sales else 0
-        st.markdown(f"""
-        <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
-            <span style="color: #E53935;">전체 매출: {total_sales:,.0f}원</span> | 
-            <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span> | 
-            <span style="color: #43A047;">이익률: {profit_rate:.1f}%</span>{avg_part}
-        </div>
-        """, unsafe_allow_html=True)
+    st.subheader(f"📊 {selected_year}년 월별 매출/이익 현황")
+    has_mm = total_mm_annual > 0
+    per_capita_sales = total_sales / total_mm_annual if total_mm_annual > 0 else 0
+    per_capita_profit = total_profit / total_mm_annual if total_mm_annual > 0 else 0
+    if has_mm:
+        per_capita_rate = (per_capita_profit / per_capita_sales * 100) if per_capita_sales else 0
+        avg_part = f"""<br><span style="color: #E53935;">인당 매출: {per_capita_sales:,.0f}원</span> | 
+        <span style="color: #1E88E5;">인당 이익: {per_capita_profit:,.0f}원</span> | 
+        <span style="color: #43A047;">이익률: {per_capita_rate:.1f}%</span>"""
+    else:
+        avg_part = ""
+        if not has_mm:
+            with st.expander("🔍 인당 매출/이익이 안 나온다면? (로드된 엑셀 컬럼 확인)", expanded=False):
+                st.write("인당 매출/이익을 위해 **Deal - 실투입 (01)~(12)**(월별 MM) 또는 **Deal - @MM (연도별)** 컬럼이 필요합니다.")
+                st.write("현재 로드된 컬럼:", list(df.columns))
+    profit_rate = (total_profit / total_sales * 100) if total_sales else 0
+    st.markdown(f"""
+    <div style="font-size: 2.0em; font-weight: bold; margin-bottom: 16px;">
+        <span style="color: #E53935;">전체 매출: {total_sales:,.0f}원</span> | 
+        <span style="color: #1E88E5;">전체 이익: {total_profit:,.0f}원</span> | 
+        <span style="color: #43A047;">이익률: {profit_rate:.1f}%</span>{avg_part}
+    </div>
+    """, unsafe_allow_html=True)
 
-        # 세로 막대 차트 (매출: 빨강, 이익: 파랑, 1-12월 한눈에)
-        month_labels = [f"{m}월" for m in range(1, 13)]
-        fig = go.Figure()
-        fig.add_trace(go.Bar(name="매출", x=month_labels, y=summary_df["매출액"], marker_color="#E53935", marker_line_width=0.5, marker_line_color="#B71C1C"))
-        fig.add_trace(go.Bar(name="이익", x=month_labels, y=summary_df["이익액"], marker_color="#1E88E5", marker_line_width=0.5, marker_line_color="#0D47A1"))
-        fig.update_layout(
-            barmode="group",
-            title=f"{selected_year}년 월별 매출/이익",
-            xaxis={"title": "", "tickmode": "array", "tickvals": month_labels, "tickangle": -45},
-            yaxis={"title": "금액(원)", "tickformat": ",d", "rangemode": "tozero"},
-            height=500,
-            margin=dict(l=80, r=40, t=60, b=80),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    month_labels = [f"{m}월" for m in range(1, 13)]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name="매출", x=month_labels, y=summary_df["매출액"], marker_color="#E53935", marker_line_width=0.5, marker_line_color="#B71C1C"))
+    fig.add_trace(go.Bar(name="이익", x=month_labels, y=summary_df["이익액"], marker_color="#1E88E5", marker_line_width=0.5, marker_line_color="#0D47A1"))
+    fig.update_layout(
+        barmode="group",
+        title=f"{selected_year}년 월별 매출/이익",
+        xaxis={"title": "", "tickmode": "array", "tickvals": month_labels, "tickangle": -45},
+        yaxis={"title": "금액(원)", "tickformat": ",d", "rangemode": "tozero"},
+        height=500,
+        margin=dict(l=80, r=40, t=60, b=80),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-        st.dataframe(summary_df.style.format({
-            "MM": "{:,.2f}",
-            "매출액": "{:,.0f}",
-            "이익액": "{:,.0f}",
-            "이익률": "{:.1f}%"
-        }), use_container_width=True, hide_index=True)
+    st.dataframe(summary_df.style.format({
+        "MM": "{:,.2f}",
+        "매출액": "{:,.0f}",
+        "이익액": "{:,.0f}",
+        "이익률": "{:.1f}%"
+    }), use_container_width=True, hide_index=True)
 
 # 5. 고객사/엔드클라이언트 순위 조회 공통 로직
 elif st.session_state.page in ["rank_customer", "rank_endclient"]:
