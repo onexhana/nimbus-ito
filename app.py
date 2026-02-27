@@ -335,7 +335,7 @@ if st.session_state.page == "dashboard":
         if uploaded_file:
             df_loaded = pd.read_excel(uploaded_file)
             save_dashboard_data(df_loaded)
-            st.sidebar.success("로드 완료!")
+            st.sidebar.success("로드 완료! 새로고침(F5)을 해주세요:)")
             st.rerun()
         if st.button("🗑️ 업로드된 데이터 삭제", use_container_width=True):
             delete_dashboard_data()
@@ -1115,8 +1115,13 @@ else:
             return combined[combined['담당자'].isin(selected_managers)]
 
         mm_col = "Deal - @MM (연도별)" if "Deal - @MM (연도별)" in df.columns else next((c for c in df.columns if "MM" in str(c) and "연도별" in str(c)), None)
-        tab1, tab2, tab3 = st.tabs(["💰 매출 분석", "📉 이익 분석", "📊 전체 분석"])
-        for tab, col_name, label in [(tab1, '선택기간_총매출', "매출"), (tab2, '선택기간_총이익', "이익")]:
+        st.markdown("""
+            <style>
+            [data-testid="stTabs"] button p, .stTabs [data-baseweb="tab-list"] button p { font-size: 1.2rem !important; font-weight: 700 !important; }
+            </style>
+        """, unsafe_allow_html=True)
+        tab1, tab2, tab3 = st.tabs(["📊 전체 분석", "💰 매출 분석", "📉 이익 분석"])
+        for tab, col_name, label in [(tab2, '선택기간_총매출', "매출"), (tab3, '선택기간_총이익', "이익")]:
             with tab:
                 res_df = calc_consolidated(col_name)
                 sum_df = res_df.groupby('담당자')['반영실적'].sum().reset_index().sort_values('반영실적', ascending=False)
@@ -1158,8 +1163,7 @@ else:
                     disp_df['반영비율'] = disp_df['비중_num'].apply(lambda x: f"{int(x*100)}%")
                     st.dataframe(disp_df[['Deal명', '담당자', '역할', '원금액', '반영비율', '반영실적']].style.format({'원금액': '{:,.0f}원', '반영실적': '{:,.0f}원'}), use_container_width=True, hide_index=True)
 
-        with tab3:
-            st.markdown("<h4 style='text-align: center; margin-bottom: 20px;'>📊 전체 분석</h4>", unsafe_allow_html=True)
+        with tab1:
             filtered = df[df['Deal - 담당자_고객'].isin(selected_managers) | df['Deal - 담당자_관리'].isin(selected_managers) | df['Deal - 담당자_소싱'].isin(selected_managers)]
             deal_id_col = "Deal - RecordId" if "Deal - RecordId" in df.columns else "Deal - 이름"
             if deal_id_col == "Deal - 이름":
@@ -1183,19 +1187,19 @@ else:
                 mm_avg = agg_df[mm_col].apply(clean_currency_val).mean() if deal_count > 0 else 0
                 c1, c2 = st.columns(2)
                 with c1: st.metric("MM 전체값", f"{mm_total:,.2f}")
-                with c2: st.metric("MM 평균값", f"{mm_avg:,.2f}")
+                with c2: st.metric("인당 MM평균값", f"{mm_avg:,.2f}")
             else:
                 st.caption("'Deal - @MM (연도별)' 컬럼이 없습니다.")
 
             st.markdown("**2. 매출 분석**")
             c1, c2 = st.columns(2)
             with c1: st.metric("매출 전체값", f"{sales_total:,.0f}원")
-            with c2: st.metric("매출 평균값", f"{sales_avg:,.0f}원")
+            with c2: st.metric("인당 매출 평균값", f"{sales_avg:,.0f}원")
 
             st.markdown("**3. 이익 분석**")
             c1, c2 = st.columns(2)
             with c1: st.metric("이익 전체값", f"{profit_total:,.0f}원")
-            with c2: st.metric("이익 평균값", f"{profit_avg:,.0f}원")
+            with c2: st.metric("인당 이익 평균값", f"{profit_avg:,.0f}원")
 
             profit_rate = (profit_total / sales_total * 100) if sales_total > 0 else 0
             st.markdown("**4. 이익률**")
